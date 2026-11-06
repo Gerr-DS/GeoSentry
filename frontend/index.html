@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoSentry — Dasbor WebGIS Pemantauan Disinformasi & Ancaman Siber Sosial</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              dark: '#070b14',
+              surface: '#0f172a',
+              border: '#1e293b',
+              accent: '#38bdf8'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet Heat Plugin -->
+  <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="h-screen w-screen flex flex-col bg-[#070b14] text-slate-100 select-none overflow-hidden">
+
+  <!-- ============================================== -->
+  <!-- TOP HEADER & SEARCH BAR -->
+  <!-- ============================================== -->
+  <header class="h-16 px-4 md:px-5 border-b border-slate-800 bg-slate-900/95 backdrop-blur-md flex items-center justify-between z-30 shrink-0 gap-3">
+    
+    <!-- Logo & Brand -->
+    <div class="flex items-center space-x-3 shrink-0">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+        <i data-lucide="shield-alert" class="w-6 h-6 text-white"></i>
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <h1 class="text-lg font-extrabold tracking-wider bg-gradient-to-r from-white via-slate-200 to-cyan-400 bg-clip-text text-transparent">
+            GEOSENTRY
+          </h1>
+          <span class="px-2 py-0.5 text-[10px] font-bold rounded uppercase tracking-widest bg-cyan-950 text-cyan-400 border border-cyan-800">
+            Kategori 04
+          </span>
+        </div>
+        <p class="text-[11px] text-slate-400 hidden sm:block">WebGIS Disinformasi & Ancaman Siber Sosial</p>
+      </div>
+    </div>
+
+    <!-- SEARCH & CHECK NEWS BAR (FITUR UTAMA BARU) -->
+    <div class="flex-1 max-w-xl flex items-center space-x-2">
+      <!-- Search Input -->
+      <div class="relative flex-1">
+        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+          <i data-lucide="search" class="w-4 h-4"></i>
+        </div>
+        <input 
+          id="input-search" 
+          type="text" 
+          placeholder="Cari berita, hoaks, kata kunci (bansos, gempa, kota)..." 
+          class="w-full pl-9 pr-8 py-2 bg-slate-800/90 border border-slate-700/80 rounded-xl text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition shadow-inner"
+        >
+        <button id="btn-clear-search" title="Hapus pencarian" class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-200 hidden">
+          <i data-lucide="x" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- Tombol Cek Berita Mandiri -->
+      <button 
+        id="btn-open-checker" 
+        class="px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-lg shadow-cyan-600/25 transition active:scale-95 shrink-0"
+      >
+        <i data-lucide="sparkles" class="w-3.5 h-3.5 text-yellow-300"></i>
+        <span class="hidden md:inline">Cek Berita AI</span>
+        <span class="md:hidden">Cek AI</span>
+      </button>
+    </div>
+
+    <!-- Counter Metrik Cepat -->
+    <div class="hidden xl:flex items-center space-x-2 shrink-0">
+      <div class="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center space-x-2">
+        <div class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></div>
+        <span id="stat-total" class="text-xs font-bold font-mono text-cyan-300">0</span>
+        <span class="text-[10px] text-slate-400">Aktif</span>
+      </div>
+      <div class="px-2.5 py-1.5 rounded-lg bg-red-950/40 border border-red-900/60 text-xs font-mono font-bold text-red-400">
+        🔴 <span id="stat-hoaks">0</span>
+      </div>
+      <div class="px-2.5 py-1.5 rounded-lg bg-blue-950/40 border border-blue-900/60 text-xs font-mono font-bold text-blue-400">
+        🔵 <span id="stat-fakta">0</span>
+      </div>
+      <div class="px-2.5 py-1.5 rounded-lg bg-amber-950/40 border border-amber-900/60 text-xs font-mono font-bold text-amber-400">
+        🟡 <span id="stat-negatif">0</span>
+      </div>
+    </div>
+
+    <!-- Status & Clock -->
+    <div class="flex items-center space-x-3 shrink-0">
+      <div class="text-right hidden sm:block">
+        <div id="live-clock" class="text-xs font-mono font-bold text-slate-200">--:--:-- WIB</div>
+        <div class="flex items-center justify-end space-x-1.5">
+          <span id="ws-indicator" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span id="ws-status" class="text-[10px] text-emerald-400 font-medium">Socket Live</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================================== -->
+  <!-- MAIN WORKSPACE: MAP & SIDEBAR -->
+  <!-- ============================================== -->
+  <div class="flex-1 flex relative overflow-hidden h-[calc(100vh-64px)]">
+
+    <!-- LEFT SIDEBAR: ANALYTICS & FEED -->
+    <aside class="w-80 md:w-96 border-r border-slate-800 bg-slate-900/95 backdrop-blur-lg flex flex-col z-20 shrink-0 h-full">
+      
+      <!-- Filter Bar -->
+      <div class="p-3 border-b border-slate-800/80 bg-slate-950/40 shrink-0">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center">
+            <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 mr-1.5 text-cyan-400"></i> Filter Kategori
+          </span>
+          <button id="btn-refresh" class="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center">
+            <i data-lucide="rotate-cw" class="w-3 h-3 mr-1"></i> Refresh
+          </button>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <!-- Filter Label -->
+          <select id="filter-label" class="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1.5 focus:outline-none focus:border-cyan-500">
+            <option value="all">Semua Kategori</option>
+            <option value="hoaks">🔴 Hoaks</option>
+            <option value="fakta">🔵 Fakta</option>
+            <option value="negatif">🟡 Sentimen Negatif</option>
+          </select>
+
+          <!-- Filter Sumber -->
+          <select id="filter-sumber" class="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1.5 focus:outline-none focus:border-cyan-500">
+            <option value="all">Semua Sumber</option>
+            <option value="twitter">Twitter / X</option>
+            <option value="berita">Portal Berita</option>
+            <option value="cek_mandiri">Cek Mandiri</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Charts Section: Donut Chart -->
+      <div class="p-3 border-b border-slate-800/80 shrink-0">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center">
+            <i data-lucide="pie-chart" class="w-3.5 h-3.5 mr-1.5 text-purple-400"></i> Komposisi Isu
+          </span>
+          <span class="text-[10px] text-slate-500 font-mono">Real-time</span>
+        </div>
+        <div class="h-32 relative flex items-center justify-center">
+          <canvas id="chart-category"></canvas>
+        </div>
+      </div>
+
+      <!-- Charts Section: Top Regions -->
+      <div class="p-3 border-b border-slate-800/80 shrink-0">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center">
+            <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 mr-1.5 text-emerald-400"></i> Wilayah Terpanas
+          </span>
+        </div>
+        <div class="h-28 relative">
+          <canvas id="chart-regions"></canvas>
+        </div>
+      </div>
+
+      <!-- Live Stream Feed Ticker -->
+      <div class="flex-1 flex flex-col min-h-0 bg-slate-950/40">
+        <div class="px-3 py-2 border-b border-slate-800/60 flex items-center justify-between shrink-0">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center">
+            <i data-lucide="radio" class="w-3.5 h-3.5 mr-1.5 text-red-500 animate-pulse"></i> Feed Radar Masuk
+          </span>
+          <span id="feed-count-badge" class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300">
+            0 item
+          </span>
+        </div>
+
+        <div id="feed-container" class="flex-1 overflow-y-auto p-2 space-y-2">
+          <div id="empty-feed-msg" class="text-center py-10 text-slate-500 text-xs">
+            <i data-lucide="satellite" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+            Menunggu injeksi data dari simulator atau pencarian...
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- RIGHT/CENTER: MAP CANVAS (DIJAMIN 100% VISIBLE) -->
+    <main class="flex-1 h-full w-full relative overflow-hidden">
+      <!-- Wrapper khusus untuk memastikan Leaflet merender peta penuh -->
+      <div id="map-wrapper" class="relative w-full h-full min-h-full">
+        <div id="map"></div>
+      </div>
+
+      <!-- Floating Map Layer Controls (Top Right) -->
+      <div class="absolute top-4 right-4 z-20 flex flex-col space-y-2">
+        <div class="glass-panel p-2 rounded-xl shadow-2xl flex items-center space-x-1.5 text-xs">
+          <!-- Toggle Marker -->
+          <button id="layer-markers" class="px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-semibold transition hover:bg-cyan-500 flex items-center space-x-1.5">
+            <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
+            <span>Titik Radar</span>
+          </button>
+          <!-- Toggle Heatmap -->
+          <button id="layer-heatmap" class="px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-semibold transition hover:bg-slate-700 flex items-center space-x-1.5">
+            <i data-lucide="flame" class="w-3.5 h-3.5 text-orange-400"></i>
+            <span>Peta Panas</span>
+          </button>
+          <!-- Basemap Switcher (Dark vs OSM) -->
+          <button id="btn-toggle-basemap" title="Ganti tampilan peta (Gelap / Terang)" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition flex items-center space-x-1">
+            <i data-lucide="layers" class="w-3.5 h-3.5 text-cyan-400"></i>
+            <span id="basemap-mode-text">Dark</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Floating Simulator Control Deck (Bottom Center) -->
+      <div class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 w-11/12 max-w-2xl">
+        <div class="glass-panel p-3 rounded-2xl shadow-2xl border border-cyan-500/30 flex flex-col md:flex-row items-center justify-between gap-3">
+          
+          <!-- Info Status Buffer -->
+          <div class="flex items-center space-x-3 w-full md:w-auto justify-between md:justify-start">
+            <div class="w-9 h-9 rounded-xl bg-cyan-950 border border-cyan-700/60 flex items-center justify-center shrink-0">
+              <i data-lucide="cpu" class="w-5 h-5 text-cyan-400"></i>
+            </div>
+            <div>
+              <div class="flex items-center space-x-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-200">Simulator Aliran Data</span>
+                <span id="sim-badge" class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-400 uppercase">
+                  Siaga
+                </span>
+              </div>
+              <p class="text-[11px] text-slate-400">
+                Sisa di buffer: <span id="buffer-remaining" class="font-mono text-cyan-300 font-bold">190</span> data
+              </p>
+            </div>
+          </div>
+
+          <!-- Controls -->
+          <div class="flex items-center space-x-2 w-full md:w-auto justify-end">
+            <!-- Speed Control -->
+            <div class="hidden sm:flex items-center space-x-1.5 mr-2 text-[11px] text-slate-400">
+              <span>Kecepatan:</span>
+              <select id="sim-speed" class="bg-slate-800 border border-slate-700 text-slate-200 rounded px-1.5 py-1 text-xs">
+                <option value="1500">1.5 detik</option>
+                <option value="2500" selected>2.5 detik</option>
+                <option value="4000">4.0 detik</option>
+              </select>
+            </div>
+
+            <!-- Tombol Play / Pause -->
+            <button id="btn-sim-toggle" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20 transition active:scale-95">
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+              <span id="sim-toggle-text">Mulai Simulasi</span>
+            </button>
+
+            <!-- Tombol Step 1x -->
+            <button id="btn-sim-step" title="Injeksi 1 data manual" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center transition active:scale-95">
+              <i data-lucide="step-forward" class="w-4 h-4"></i>
+            </button>
+
+            <!-- Tombol Reset -->
+            <button id="btn-sim-reset" title="Reset buffer ke 0 tayang" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-red-950/60 hover:text-red-400 border border-slate-700 text-slate-400 font-semibold text-xs flex items-center transition active:scale-95">
+              <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map Legend (Bottom Left) -->
+      <div class="absolute bottom-5 left-5 z-20 hidden lg:block">
+        <div class="glass-panel p-3 rounded-xl shadow-xl text-xs space-y-1.5">
+          <span class="font-bold uppercase tracking-wider text-[10px] text-slate-400 block mb-1">Legenda Kategori</span>
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+            <span class="text-slate-300">Hoaks / Disinformasi</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+            <span class="text-slate-300">Fakta / Berita Terverifikasi</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            <span class="text-slate-300">Sentimen Negatif / Ekstrem</span>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: CEK BERITA MANDIRI DENGAN AI (INSTANT FACT-CHECKER) -->
+  <!-- ============================================== -->
+  <div id="modal-checker" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+    <div class="glass-panel w-full max-w-lg rounded-2xl shadow-2xl border border-cyan-500/40 p-5 space-y-4">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-8 h-8 rounded-lg bg-cyan-950 border border-cyan-700/60 flex items-center justify-center">
+            <i data-lucide="sparkles" class="w-4 h-4 text-cyan-400"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-100">Uji & Cek Berita Mandiri (AI Local)</h3>
+            <p class="text-[11px] text-slate-400">Ketik narasi atau judul berita untuk dianalisis model AI secara instan</p>
+          </div>
+        </div>
+        <button id="btn-close-checker" class="text-slate-400 hover:text-slate-200 p-1">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Textarea Input -->
+      <div>
+        <label class="block text-[11px] font-semibold text-slate-300 mb-1.5">Teks Narasi / Cuitan / Judul Berita:</label>
+        <textarea 
+          id="checker-input-text" 
+          rows="3" 
+          placeholder="Contoh: Beredar kabar hoaks air sumur warga di Bandung Barat tercemar racun kimia mematikan..." 
+          class="w-full p-3 bg-slate-950/70 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 leading-relaxed"
+        ></textarea>
+      </div>
+
+      <!-- Action Button -->
+      <div class="flex items-center justify-between">
+        <span class="text-[10px] text-slate-500">Mendeteksi kategori, skor, dan lokasi kota di Indonesia</span>
+        <button 
+          id="btn-run-analysis" 
+          class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20 transition active:scale-95"
+        >
+          <i data-lucide="cpu" class="w-4 h-4"></i>
+          <span id="btn-analysis-text">Analisis dengan AI</span>
+        </button>
+      </div>
+
+      <!-- Hasil Analisis Container -->
+      <div id="checker-result-box" class="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5 hidden">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-slate-300">Hasil Analisis Model:</span>
+          <span id="res-badge" class="px-2.5 py-0.5 rounded text-[11px] font-bold uppercase">
+            --
+          </span>
+        </div>
+
+        <!-- Confidence Bar -->
+        <div>
+          <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+            <span>Tingkat Keyakinan AI:</span>
+            <span id="res-confidence" class="font-mono font-bold text-slate-200">0%</span>
+          </div>
+          <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div id="res-prob-bar" class="h-2 rounded-full bg-cyan-500 transition-all duration-500" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <!-- Terdeteksi Lokasi -->
+        <div class="text-xs text-slate-300 flex items-center">
+          <i data-lucide="map-pin" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i>
+          <span>Lokasi Spasial: <strong id="res-location" class="text-white ml-1">--</strong></span>
+        </div>
+
+        <!-- Tombol Tambahkan ke Peta -->
+        <div class="pt-2 border-t border-slate-800 flex justify-end">
+          <button 
+            id="btn-plot-to-map" 
+            class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg flex items-center space-x-1.5 shadow transition"
+          >
+            <i data-lucide="map" class="w-3.5 h-3.5"></i>
+            <span>Plot & Tampilkan di Peta</span>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- App Script -->
+  <script src="js/app.js"></script>
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
