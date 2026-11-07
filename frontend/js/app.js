@@ -302,7 +302,7 @@ function updateChartsAndStats(stats) {
   document.getElementById('stat-hoaks').innerText = stats.hoaks || 0;
   document.getElementById('stat-fakta').innerText = stats.fakta || 0;
   document.getElementById('stat-negatif').innerText = stats.negatif || 0;
-  document.getElementById('buffer-remaining').innerText = stats.total_buffer - stats.total_active;
+  document.getElementById('buffer-remaining').innerText = stats.total_active || 0;
 
   if (AppState.chartCategory) {
     AppState.chartCategory.data.datasets[0].data = [
@@ -558,7 +558,10 @@ function initWebSocket() {
   });
 
   AppState.socket.on('new_threat', (feature) => {
-    addThreatToMap(feature, true);
+    // Jika sedang streaming simulasi otomatis, jangan paksa kamera melompat (autoFly=false)
+    // agar tampilan peta tetap stabil saat data baru terus bermunculan di seluruh Indonesia.
+    const autoFly = !AppState.isSimulating && feature.properties.sumber === 'cek_mandiri';
+    addThreatToMap(feature, autoFly);
     fetchStats();
   });
 
@@ -574,6 +577,7 @@ function initWebSocket() {
     AppState.markers.clear();
     updateHeatmapData();
     renderFeedList();
+    fetchInitialThreats();
     fetchStats();
   });
 
@@ -583,12 +587,12 @@ function initWebSocket() {
     const toggleBtn = document.getElementById('sim-toggle-text');
     if (status.isRunning) {
       badge.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-400 uppercase border border-emerald-800 animate-pulse';
-      badge.innerText = 'Berjalan';
-      toggleBtn.innerText = 'Jeda Simulasi';
+      badge.innerText = 'Menambah Data Live';
+      if (toggleBtn) toggleBtn.innerText = 'Jeda Tambah Data';
     } else {
       badge.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-400 uppercase';
       badge.innerText = 'Siaga';
-      toggleBtn.innerText = 'Mulai Simulasi';
+      if (toggleBtn) toggleBtn.innerText = 'Mulai Tambah Data';
     }
   });
 }

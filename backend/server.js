@@ -316,45 +316,123 @@ app.get('/api/cities', async (req, res) => {
 });
 
 // ==========================================
-// SIMULATOR BUFFER API
+// DYNAMIC REAL-TIME SIMULATOR (GENERATOR DATA LIVE)
 // ==========================================
+
+const SIMULATION_TEMPLATES = [
+  // HOAKS
+  {
+    label: 'hoaks',
+    sumber: 'twitter',
+    templates: [
+      "Viral pesan berantai di grup WA warga {kota}: klaim bantuan bansos BLT 5 juta rupiah per KK cair hari ini, segera daftar di link t.me/bansos-darurat-{slug}!",
+      "Peringatan darurat orang dalam: gempa megathrust dahsyat magnitudo 9.5 akan mengguncang pesisir {kota} malam ini jam 1 dini hari, segera evakuasi!",
+      "Beredar pesan suara hoaks: air PDAM di kawasan {kota} sengaja dicampur serbuk racun mematikan oleh oknum tidak bertanggung jawab!",
+      "Hati-hati beredar beras plastik berbahan sintetis lem kimia di pasar tradisional {kota}, teksturnya kenyal dan merusak organ pencernaan!",
+      "Jangan mau disuntik vaksin booster terbaru di puskesmas {kota}! Ada microchip buatan asing yang sengaja ditanam untuk menyadap pikiran warga!",
+      "Waspada komplotan penculik anak menyamar naik mobil box putih berkeliaran di lingkungan SD wilayah {kota}, organ tubuh korban dijual ke pasar gelap!",
+      "Klaim dokter herbal gadungan di {kota}: minum air rebusan pare campur garam kasar setiap malam membunuh sel kanker ganas dalam 3 hari!",
+      "Bongkar rekaman rahasia: server penghitungan suara di {kota} telah diretas agen asing dan suara dialihkan 100 persen tanpa jejak!",
+      "Informasi A1: mulai besok seluruh SPBU Pertamina di wilayah {kota} ditutup total selama sebulan karena pasokan BBM langka!",
+      "Klaim palsu mengabarkan uang koin logam seribu rupiah kelapa sawit di {kota} dibeli bank sentral seharga seratus juta rupiah per keping!",
+      "Beredar edaran palsu pengangkatan honorer menjadi PNS tanpa tes seleksi dari BKN di {kota} dengan membayar biaya seragam dua juta rupiah!",
+      "Ditemukan chip mata-mata asing di dalam meteran listrik token PLN di perumahan {kota}, alat ini merekam percakapan warga!"
+    ]
+  },
+  // FAKTA
+  {
+    label: 'fakta',
+    sumber: 'berita',
+    templates: [
+      "Presiden didampingi Menteri meresmikan proyek jembatan layang dan jalan tol baru di kawasan {kota} guna memperlancar arus distribusi logistik antardaerah.",
+      "BMKG Stasiun Geofisika merilis informasi gempa tektonik berkekuatan magnitudo 4.8 di perairan dekat {kota} dan memastikan tidak berpotensi tsunami.",
+      "Aparat Polrestabes {kota} berhasil membekuk sindikat komplotan pencurian kendaraan bermotor dan mengamankan belasan barang bukti.",
+      "Wali Kota {kota} meninjau langsung kesiapan sistem drainase kota dan stasiun pompa air untuk mengantisipasi potensi genangan banjir di musim hujan.",
+      "Dinas Kesehatan {kota} mengimbau seluruh masyarakat untuk melengkapi imunisasi dasar balita di puskesmas dan posyandu terdekat secara rutin.",
+      "Bank Indonesia perwakilan {kota} bersama Tim Pengendalian Inflasi Daerah menggelar operasi pasar murah beras dan minyak goreng curah.",
+      "Tim SAR gabungan berhasil menemukan dan mengevakuasi seluruh nelayan yang sempat hilang kontak akibat cuaca buruk di perairan {kota}.",
+      "Pemerintah Daerah {kota} meluncurkan program armada bus listrik gratis untuk rute koridor utama guna mengurangi tingkat polusi udara.",
+      "Badan Pusat Statistik mengumumkan laju pertumbuhan ekonomi wilayah {kota} tercatat tumbuh positif sebesar 5.12 persen pada triwulan ini.",
+      "Perum Bulog memastikan stok cadangan beras di gudang logistik {kota} dalam kondisi mencukupi untuk memenuhi kebutuhan masyarakat."
+    ]
+  },
+  // NEGATIF
+  {
+    label: 'negatif',
+    sumber: 'twitter',
+    templates: [
+      "Aparat keparat di {kota} malah membekingi penjahat! Ayo serbu dan bakar markas mereka malam ini juga, jangan beri mereka ampun!",
+      "Rezim bangsat! Saatnya rakyat di {kota} angkat senjata, bawa bom molotov dan gulingkan penguasa zalim ini sampai titik darah penghabisan!",
+      "Usir semua etnis pendatang parasit itu dari tanah {kota}! Bakar rumah dan hancurkan toko-toko mereka sampai rata dengan tanah!",
+      "Malam ini sweeping seluruh jalur protokol di {kota}, bawa celurit dan sajam, habisi siapa saja kelompok musuh yang berani lewat!",
+      "Kepung dan bakar kantor dinas di {kota} sekarang juga! Bikin kota ini lumpuh total oleh amuk massa malam ini!"
+    ]
+  }
+];
 
 let simulatorTimer = null;
 let simulatorSpeed = 2500; // ms antar tayangan
 
+// Fungsi inti simulator: MENAMBAH DATA BARU KE DATABASE SECARA REAL-TIME
 async function executeSimulatorStep() {
   try {
-    // Ambil 1 baris terlama atau acak yang belum tayang
-    const query = `
-      WITH next_threat AS (
-        SELECT id FROM social_threats
-        WHERE status_tayang = FALSE
-        ORDER BY id ASC
-        LIMIT 1
-      )
-      UPDATE social_threats
-      SET status_tayang = TRUE, dibuat_pada = NOW()
-      WHERE id IN (SELECT id FROM next_threat)
+    // 1. Ambil 1 kota acak dari gazetteer (500 kota di seluruh Nusantara)
+    const cityRes = await pool.query(
+      `SELECT nama, provinsi, lat, lon FROM gazetteer ORDER BY RANDOM() LIMIT 1;`
+    );
+    if (cityRes.rows.length === 0) return null;
+    const city = cityRes.rows[0];
+    const kotaDisplay = city.nama.charAt(0).toUpperCase() + city.nama.slice(1);
+    const kotaSlug = city.nama.toLowerCase().replace(/\s+/g, '-');
+
+    // 2. Tentukan kategori berbobot (45% hoaks, 40% fakta, 15% negatif)
+    const rand = Math.random();
+    let categoryObj;
+    if (rand < 0.45) {
+      categoryObj = SIMULATION_TEMPLATES[0]; // hoaks
+    } else if (rand < 0.85) {
+      categoryObj = SIMULATION_TEMPLATES[1]; // fakta
+    } else {
+      categoryObj = SIMULATION_TEMPLATES[2]; // negatif
+    }
+
+    const tmpl = categoryObj.templates[Math.floor(Math.random() * categoryObj.templates.length)];
+    const text = tmpl.replace(/{kota}/g, kotaDisplay).replace(/{slug}/g, kotaSlug);
+    const label = categoryObj.label;
+    const prob = Number((0.85 + Math.random() * 0.13).toFixed(4));
+    const sumber = categoryObj.sumber;
+    const url = sumber === 'twitter' 
+      ? `https://twitter.com/intel_siber/status/${Date.now()}` 
+      : `https://berita.geosentry.id/intel/${Date.now()}`;
+    const lokasiNama = `${kotaDisplay} (${city.provinsi})`;
+
+    // 3. INSERT DATA BARU KE POSTGRESQL (BENAR-BENAR MENAMBAH RECORD BARU)
+    const insertQuery = `
+      INSERT INTO social_threats 
+      (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
+      VALUES 
+      ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, TRUE, FALSE, NOW())
       RETURNING 
         id, sumber, teks, label, probabilitas, 
         ST_AsGeoJSON(geom) AS geojson, 
         lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada;
     `;
-    const result = await pool.query(query);
+    const insertRes = await pool.query(insertQuery, [
+      sumber,
+      text,
+      label,
+      prob,
+      parseFloat(city.lon),
+      parseFloat(city.lat),
+      lokasiNama,
+      url
+    ]);
 
-    if (result.rows.length === 0) {
-      console.log('[i] Buffer habis! Semua data telah ditayangkan.');
-      stopSimulator();
-      io.emit('simulator_buffer_empty');
-      return null;
-    }
-
-    const row = result.rows[0];
-    const feature = rowToGeoJSONFeature(row);
+    const feature = rowToGeoJSONFeature(insertRes.rows[0]);
 
     // Broadcast ke seluruh klien Leaflet via WebSocket!
     io.emit('new_threat', feature);
-    console.log(`[+] [Simulator] ID ${feature.id} ditayangkan: [${feature.properties.label.toUpperCase()}] di ${feature.properties.lokasi_nama}`);
+    console.log(`[+] [Simulator Tambah Data] ID ${feature.id}: [${feature.properties.label.toUpperCase()}] di ${feature.properties.lokasi_nama}`);
     return feature;
   } catch (err) {
     console.error('[!] Error simulator step:', err);
@@ -367,7 +445,7 @@ function startSimulator(speed = 2500) {
   simulatorSpeed = speed;
   simulatorTimer = setInterval(executeSimulatorStep, simulatorSpeed);
   io.emit('simulator_status', { isRunning: true, speed: simulatorSpeed });
-  console.log(`[✓] Simulator aktif (interval ${simulatorSpeed}ms)`);
+  console.log(`[✓] Generator Simulasi Data Live aktif (interval ${simulatorSpeed}ms)`);
 }
 
 function stopSimulator() {
@@ -376,56 +454,58 @@ function stopSimulator() {
     simulatorTimer = null;
   }
   io.emit('simulator_status', { isRunning: false });
-  console.log('[✓] Simulator dihentikan');
+  console.log('[✓] Generator Simulasi Data Live dihentikan');
 }
 
-// Step manual 1 kali
+// Step manual 1 kali (menambah 1 data baru)
 app.post('/api/simulator/step', async (req, res) => {
   const feature = await executeSimulatorStep();
   if (feature) {
     res.json({ success: true, feature });
   } else {
-    res.json({ success: false, message: 'Buffer habis atau tidak ada data yang belum tayang' });
+    res.status(500).json({ success: false, message: 'Gagal membuat data simulasi baru' });
   }
 });
 
-// Mulai loop otomatis
+// Mulai loop otomatis penambahan data
 app.post('/api/simulator/start', (req, res) => {
   const speed = parseInt(req.body.speed, 10) || 2500;
   startSimulator(speed);
   res.json({ success: true, isRunning: true, speed });
 });
 
-// Hentikan loop otomatis
+// Hentikan loop otomatis penambahan data
 app.post('/api/simulator/stop', (req, res) => {
   stopSimulator();
   res.json({ success: true, isRunning: false });
 });
 
-// Reset semua status_tayang ke FALSE
+// Reset simulasi: kembalikan ke baseline 120 data awal nasional
 app.post('/api/simulator/reset', async (req, res) => {
   stopSimulator();
   try {
-    await pool.query('UPDATE social_threats SET status_tayang = FALSE, dikoreksi = FALSE;');
+    // Hapus data yang ditambahkan selama simulasi (ID > 260)
+    await pool.query('DELETE FROM social_threats WHERE id > 260;');
+    await pool.query('UPDATE social_threats SET status_tayang = TRUE, dikoreksi = FALSE WHERE id <= 120;');
     io.emit('simulator_reset');
-    console.log('[✓] Buffer berhasil di-reset: seluruh data disetel status_tayang = FALSE');
-    res.json({ success: true, message: 'Buffer simulasi berhasil direset ke kondisi awal' });
+    console.log('[✓] Simulasi di-reset ke baseline 120 data nasional');
+    res.json({ success: true, message: 'Data simulasi di-reset kembali ke baseline 120 titik nasional' });
   } catch (err) {
     console.error('[!] Error simulator reset:', err);
-    res.status(500).json({ error: 'Gagal mereset buffer simulasi' });
+    res.status(500).json({ error: 'Gagal mereset simulasi' });
   }
 });
 
 // Status simulator
 app.get('/api/simulator/status', async (req, res) => {
   try {
-    const unshownRes = await pool.query('SELECT COUNT(*) AS remaining FROM social_threats WHERE status_tayang = FALSE;');
-    const shownRes = await pool.query('SELECT COUNT(*) AS active FROM social_threats WHERE status_tayang = TRUE;');
+    const totalRes = await pool.query('SELECT COUNT(*) AS total FROM social_threats;');
+    const activeRes = await pool.query('SELECT COUNT(*) AS active FROM social_threats WHERE status_tayang = TRUE;');
     res.json({
       isRunning: Boolean(simulatorTimer),
       speed: simulatorSpeed,
-      remaining_buffer: parseInt(unshownRes.rows[0].remaining, 10),
-      active_count: parseInt(shownRes.rows[0].active, 10)
+      total_data: parseInt(totalRes.rows[0].total, 10),
+      active_count: parseInt(activeRes.rows[0].active, 10)
     });
   } catch (err) {
     res.status(500).json({ error: 'Gagal mengecek status simulator' });

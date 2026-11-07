@@ -246,13 +246,13 @@
             </div>
             <div>
               <div class="flex items-center space-x-2">
-                <span class="text-xs font-bold uppercase tracking-wider text-slate-200">Simulator Aliran Data</span>
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-200">Generator Aliran Data Live</span>
                 <span id="sim-badge" class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-400 uppercase">
                   Siaga
                 </span>
               </div>
               <p class="text-[11px] text-slate-400">
-                Sisa di buffer: <span id="buffer-remaining" class="font-mono text-cyan-300 font-bold">190</span> data
+                Total Data Aktif: <span id="buffer-remaining" class="font-mono text-cyan-300 font-bold">120</span> titik di Indonesia
               </p>
             </div>
           </div>
@@ -272,16 +272,16 @@
             <!-- Tombol Play / Pause -->
             <button id="btn-sim-toggle" class="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20 transition active:scale-95">
               <i data-lucide="play" class="w-4 h-4 fill-current"></i>
-              <span id="sim-toggle-text">Mulai Simulasi</span>
+              <span id="sim-toggle-text">Mulai Tambah Data</span>
             </button>
 
             <!-- Tombol Step 1x -->
-            <button id="btn-sim-step" title="Injeksi 1 data manual" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center transition active:scale-95">
+            <button id="btn-sim-step" title="Injeksi & tambah 1 data baru langsung" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center transition active:scale-95">
               <i data-lucide="step-forward" class="w-4 h-4"></i>
             </button>
 
             <!-- Tombol Reset -->
-            <button id="btn-sim-reset" title="Reset buffer ke 0 tayang" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-red-950/60 hover:text-red-400 border border-slate-700 text-slate-400 font-semibold text-xs flex items-center transition active:scale-95">
+            <button id="btn-sim-reset" title="Kembalikan ke baseline 120 titik nasional" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-red-950/60 hover:text-red-400 border border-slate-700 text-slate-400 font-semibold text-xs flex items-center transition active:scale-95">
               <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
             </button>
           </div>

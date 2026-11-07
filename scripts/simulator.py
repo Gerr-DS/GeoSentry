@@ -22,7 +22,7 @@ BACKEND_URL = f"http://localhost:{BACKEND_PORT}"
 
 
 def get_status():
-    """Mengambil status buffer dari database."""
+    """Mengambil status data dari database."""
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM social_threats;")
@@ -30,9 +30,6 @@ def get_status():
 
             cur.execute("SELECT count(*) FROM social_threats WHERE status_tayang = TRUE;")
             active = cur.fetchone()[0]
-
-            cur.execute("SELECT count(*) FROM social_threats WHERE status_tayang = FALSE;")
-            remaining = cur.fetchone()[0]
 
             cur.execute("""
                 SELECT label, count(*) FROM social_threats 
@@ -42,19 +39,18 @@ def get_status():
             breakdown = dict(cur.fetchall())
 
             print("=" * 55)
-            print("  🛡️  GEOSENTRY BUFFER SIMULATOR STATUS")
+            print("  🛡️  GEOSENTRY DATA GENERATOR & SIMULATOR STATUS")
             print("=" * 55)
-            print(f"  Total Data di Buffer : {total}")
-            print(f"  Data Sudah Tayang    : {active}")
-            print(f"  Data Sisa di Antrean : {remaining}")
-            print(f"  Rincian Tayang       : Hoaks={breakdown.get('hoaks', 0)} | Fakta={breakdown.get('fakta', 0)} | Negatif={breakdown.get('negatif', 0)}")
+            print(f"  Total Titik di Database : {total}")
+            print(f"  Titik Aktif di Peta     : {active}")
+            print(f"  Rincian Kategori        : Hoaks={breakdown.get('hoaks', 0)} | Fakta={breakdown.get('fakta', 0)} | Negatif={breakdown.get('negatif', 0)}")
             print("=" * 55)
-            return {"total": total, "active": active, "remaining": remaining}
+            return {"total": total, "active": active}
 
 
 def reset_buffer():
-    """Mereset semua data ke status_tayang = FALSE."""
-    print("[*] Mereset seluruh buffer presentasi ke status_tayang = FALSE...")
+    """Mereset data kembali ke baseline 120 titik nasional."""
+    print("[*] Mereset data kembali ke baseline 120 titik nasional...")
     try:
         # Coba reset lewat Backend API jika server aktif agar WebSocket memancarkan reset
         res = requests.post(f"{BACKEND_URL}/api/simulator/reset", timeout=2)
