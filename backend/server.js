@@ -295,6 +295,23 @@ app.post('/api/analyze', (req, res) => {
 
         // 3. Simpan Titik Pembuat & Titik-Titik Penyebar ke Database (PostGIS)
         if (save) {
+          // Buat URL rujukan berita terkait yang valid dan dapat langsung diklik
+          const cleanSearchQuery = result.teks
+            .replace(/^(Viral|Awas|Waspada|Kabar heboh|Informasi A1|Bongkar|Klarifikasi)[:!]\s*/i, '')
+            .replace(/["']/g, '')
+            .slice(0, 70)
+            .trim();
+
+          let originNewsUrl = '';
+          if (result.label === 'hoaks') {
+            originNewsUrl = `https://turnbackhoax.id/?s=${encodeURIComponent(cleanSearchQuery)}`;
+          } else if (result.label === 'fakta') {
+            originNewsUrl = `https://news.google.com/search?q=${encodeURIComponent(cleanSearchQuery)}&hl=id&gl=ID&ceid=ID:id`;
+          } else {
+            originNewsUrl = `https://news.google.com/search?q=${encodeURIComponent(cleanSearchQuery + ' klarifikasi')}&hl=id&gl=ID&ceid=ID:id`;
+          }
+          result.url = originNewsUrl;
+
           // A. Insert Titik Pusat Pembuat Berita
           const insertOriginQuery = `
             INSERT INTO social_threats 
@@ -314,7 +331,7 @@ app.post('/api/analyze', (req, res) => {
             originCity.lon,
             originCity.lat,
             originCity.nama,
-            'pusat_pembuat'
+            originNewsUrl
           ]);
           const originFeature = rowToGeoJSONFeature(originRes.rows[0]);
           originFeature.properties.is_origin = true;
@@ -333,6 +350,7 @@ app.post('/api/analyze', (req, res) => {
             ];
             const shareText = shareQuotes[i % shareQuotes.length];
             const spreaderProb = Math.max(0.70, Number((result.probabilitas - (0.02 * (i + 1))).toFixed(4)));
+            const spUrl = `https://twitter.com/search?q=${encodeURIComponent(cleanSearchQuery)}&f=live`;
 
             const insertSpreaderQuery = `
               INSERT INTO social_threats 
@@ -352,7 +370,7 @@ app.post('/api/analyze', (req, res) => {
               sp.lon,
               sp.lat,
               sp.nama,
-              'penyebar_berita'
+              spUrl
             ]);
             const spFeature = rowToGeoJSONFeature(spRes.rows[0]);
             spFeature.properties.is_spreader = true;
@@ -487,10 +505,15 @@ async function executeSimulatorStep() {
     const text = tmpl.replace(/{kota}/g, kotaDisplay).replace(/{slug}/g, kotaSlug);
     const label = categoryObj.label;
     const prob = Number((0.85 + Math.random() * 0.13).toFixed(4));
-    const sumber = categoryObj.sumber;
-    const url = sumber === 'twitter' 
-      ? `https://twitter.com/intel_siber/status/${Date.now()}` 
-      : `https://berita.geosentry.id/intel/${Date.now()}`;
+    const cleanSearch = text.slice(0, 60).replace(/["']/g, '').trim();
+    let url = '';
+    if (label === 'hoaks') {
+      url = `https://turnbackhoax.id/?s=${encodeURIComponent(cleanSearch)}`;
+    } else if (sumber === 'twitter') {
+      url = `https://twitter.com/search?q=${encodeURIComponent(cleanSearch)}&f=live`;
+    } else {
+      url = `https://news.google.com/search?q=${encodeURIComponent(cleanSearch)}&hl=id&gl=ID&ceid=ID:id`;
+    }
     const lokasiNama = `${kotaDisplay} (${city.provinsi})`;
 
     // 3. INSERT DATA BARU KE POSTGRESQL (BENAR-BENAR MENAMBAH RECORD BARU)

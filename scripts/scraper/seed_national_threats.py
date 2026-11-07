@@ -9,6 +9,7 @@ dan berita terverifikasi yang tersebar merata di 38 provinsi di seluruh kepulaua
 import os
 import sys
 import random
+import urllib.parse
 from dotenv import load_dotenv
 import psycopg
 
@@ -137,7 +138,13 @@ def seed_national_threats():
                     tayang_count += 1
 
                 sumber = "berita" if label == "fakta" else ("twitter" if idx % 2 == 0 else "cek_mandiri")
-                url = f"https://geosentry.id/intel/{idx + 1}"
+                clean_search = text[:60].replace('"', '').strip()
+                if label == 'hoaks':
+                    url = f"https://turnbackhoax.id/?s={urllib.parse.quote(clean_search)}"
+                elif sumber == 'twitter':
+                    url = f"https://twitter.com/search?q={urllib.parse.quote(clean_search)}&f=live"
+                else:
+                    url = f"https://news.google.com/search?q={urllib.parse.quote(clean_search)}&hl=id&gl=ID&ceid=ID:id"
 
                 query = """
                     INSERT INTO social_threats 

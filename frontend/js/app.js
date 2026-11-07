@@ -79,6 +79,12 @@ function initMap() {
   window.addEventListener('resize', () => {
     if (AppState.map) AppState.map.invalidateSize();
   });
+
+  AppState.map.on('popupopen', () => {
+    if (window.lucide && typeof lucide.createIcons === 'function') {
+      lucide.createIcons();
+    }
+  });
 }
 
 // Helper: Custom Marker Icon dengan Efek Radar Berdenyut
@@ -93,6 +99,29 @@ function createCustomIcon(label) {
   });
 }
 
+// Helper: Dapatkan Link Berita Terkait yang Valid
+function getRelatedNewsUrl(props) {
+  if (props.url && (props.url.startsWith('http://') || props.url.startsWith('https://')) && !props.url.includes('geosentry.id')) {
+    return props.url;
+  }
+  let cleanQuery = (props.teks || '')
+    .replace(/^\[.*?\]\s*/, '')
+    .replace(/^(Viral|Awas|Waspada|Kabar heboh|Informasi A1|Bongkar|Klarifikasi)[:!]\s*/i, '')
+    .replace(/["'”]/g, '')
+    .slice(0, 75)
+    .trim();
+
+  if (!cleanQuery) cleanQuery = props.lokasi_nama || 'berita Indonesia';
+
+  if (props.label === 'hoaks') {
+    return `https://turnbackhoax.id/?s=${encodeURIComponent(cleanQuery)}`;
+  } else if (props.sumber === 'twitter') {
+    return `https://twitter.com/search?q=${encodeURIComponent(cleanQuery)}&f=live`;
+  } else {
+    return `https://news.google.com/search?q=${encodeURIComponent(cleanQuery)}&hl=id&gl=ID&ceid=ID:id`;
+  }
+}
+
 // Helper: Format Popup Interaktif & Tombol Feedback Loop
 function createPopupContent(props) {
   const labelColor = props.label === 'hoaks' ? 'text-red-400 bg-red-950/60 border-red-800' : 
@@ -104,6 +133,20 @@ function createPopupContent(props) {
   let sumberLabel = '📰 Berita';
   if (props.sumber === 'twitter') sumberLabel = '🐦 Twitter';
   else if (props.sumber === 'cek_mandiri') sumberLabel = '✨ Cek Mandiri';
+
+  const newsUrl = getRelatedNewsUrl(props);
+  let linkIcon = 'newspaper';
+  let linkTitle = 'Baca Berita di Google News';
+  if (props.label === 'hoaks') {
+    linkIcon = 'shield-alert';
+    linkTitle = 'Cek Fakta di TurnBackHoax';
+  } else if (props.sumber === 'twitter') {
+    linkIcon = 'message-circle';
+    linkTitle = 'Lihat di Twitter / X';
+  } else if (props.label === 'negatif') {
+    linkIcon = 'alert-triangle';
+    linkTitle = 'Pantau Berita & Isu Terkait';
+  }
 
   return `
     <div class="text-xs space-y-2.5 min-w-[260px] max-w-[320px]">
@@ -134,8 +177,22 @@ function createPopupContent(props) {
         <span class="mr-1">📍</span> Lokasi: <strong class="text-slate-200 ml-1">${props.lokasi_nama || 'Nasional'}</strong>
       </div>
 
+      <!-- Tautan Berita Terkait yang Dapat Diklik Langsung -->
+      <div class="pt-1.5 border-t border-slate-700/60">
+        <a href="${newsUrl}" target="_blank" rel="noopener noreferrer" 
+           class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-200 hover:text-white transition group text-[11px] font-semibold">
+          <span class="flex items-center space-x-1.5 truncate mr-1">
+            <i data-lucide="${linkIcon}" class="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition shrink-0"></i>
+            <span class="truncate max-w-[180px]">${linkTitle}</span>
+          </span>
+          <span class="text-[10px] text-cyan-400 font-mono flex items-center shrink-0">
+            <span>Buka</span> &rarr;
+          </span>
+        </a>
+      </div>
+
       <!-- Feedback Loop Koreksi Analis -->
-      <div class="pt-2 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
+      <div class="pt-1.5 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
         <span class="text-[10px] text-emerald-400 font-semibold flex items-center">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse"></span> Feedback:
         </span>
@@ -348,6 +405,9 @@ function prependThreatToFeed(props, isNew = false) {
   if (props.sumber === 'twitter') sumberIcon = '🐦 Twitter';
   else if (props.sumber === 'cek_mandiri') sumberIcon = '✨ Cek Mandiri';
 
+  const newsUrl = getRelatedNewsUrl(props);
+  const linkBadgeText = props.label === 'hoaks' ? 'Cek Fakta' : (props.sumber === 'twitter' ? 'Twitter' : 'Berita');
+
   div.innerHTML = `
     <div class="flex items-center justify-between mb-1">
       <span class="font-bold uppercase text-[10px] tracking-wider">${props.label}</span>
@@ -356,14 +416,23 @@ function prependThreatToFeed(props, isNew = false) {
     <p class="text-slate-300 line-clamp-2 leading-relaxed">
       ${props.teks}
     </p>
-    <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-500">
-      <span>${sumberIcon}</span>
-      <span>AI Conf: ${Math.round((props.probabilitas || 0.5) * 100)}%</span>
+    <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
+      <span class="flex items-center space-x-1">${sumberIcon}</span>
+      <a href="${newsUrl}" target="_blank" rel="noopener noreferrer" 
+         onclick="event.stopPropagation();" 
+         class="text-cyan-400 hover:text-cyan-200 transition flex items-center space-x-1 hover:underline font-semibold bg-cyan-950/70 px-1.5 py-0.5 rounded border border-cyan-800/50">
+        <span>${linkBadgeText}</span>
+        <i data-lucide="external-link" class="w-2.5 h-2.5 ml-0.5"></i>
+      </a>
+      <span class="font-mono text-slate-500">Conf: ${Math.round((props.probabilitas || 0.5) * 100)}%</span>
     </div>
   `;
 
   container.prepend(div);
   updateFeedCountBadge();
+  if (isNew && window.lucide && typeof lucide.createIcons === 'function') {
+    lucide.createIcons();
+  }
 }
 
 function renderFeedList() {
@@ -386,6 +455,9 @@ function renderFeedList() {
     prependThreatToFeed(feat.properties, false);
   });
   updateFeedCountBadge();
+  if (window.lucide && typeof lucide.createIcons === 'function') {
+    lucide.createIcons();
+  }
 }
 
 function updateFeedCountBadge() {
@@ -483,6 +555,22 @@ async function runNewsAnalysis(saveToMap = true) {
         }).join('');
       }
 
+      // Update Link Rujukan Berita Terkait Langsung
+      const newsLinkEl = document.getElementById('res-news-link');
+      const newsLinkLabel = document.getElementById('res-news-link-label');
+      const newsUrl = a.url || getRelatedNewsUrl({ teks: a.teks, label: a.label, sumber: 'cek_mandiri' });
+      if (newsLinkEl && newsUrl) {
+        newsLinkEl.href = newsUrl;
+        if (newsLinkLabel) {
+          newsLinkLabel.innerText = a.label === 'hoaks' 
+            ? 'Cek Fakta di TurnBackHoax ↗' 
+            : (a.label === 'fakta' ? 'Buka Berita di Google News ↗' : 'Pantau Isu Terkait ↗');
+        }
+      }
+      if (window.lucide && typeof lucide.createIcons === 'function') {
+        lucide.createIcons();
+      }
+
       // PEMETAAN MULTI-TITIK DI PETA LEAFLET (Origin + 3-5 Penyebar)
       const featuresToPlot = a.saved_features || (a.saved_feature ? [a.saved_feature] : []);
       if (featuresToPlot.length > 0) {
@@ -514,7 +602,7 @@ async function runNewsAnalysis(saveToMap = true) {
           originCoord = [lat, lon];
         }
 
-        // Tutup modal secara mulus setelah 800ms agar user bisa melihat langsung sebaran di peta
+        // Beri jeda 2 detik agar pengguna dapat melihat klasifikasi & link rujukan sebelum fokus ke peta
         setTimeout(() => {
           const modalEl = document.getElementById('modal-checker');
           if (modalEl) modalEl.classList.add('hidden');
@@ -531,7 +619,7 @@ async function runNewsAnalysis(saveToMap = true) {
               AppState.markers.get(originId).openPopup();
             }
           }, 1200);
-        }, 800);
+        }, 2000);
 
         // Update statistik & grafik wilayah terpanas secara langsung
         fetchStats();
