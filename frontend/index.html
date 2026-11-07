@@ -182,7 +182,7 @@
             <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 mr-1.5 text-emerald-400"></i> Wilayah Terpanas
           </span>
         </div>
-        <div class="h-28 relative">
+        <div class="h-36 relative">
           <canvas id="chart-regions"></canvas>
         </div>
       </div>
@@ -324,7 +324,7 @@
           </div>
           <div>
             <h3 class="text-sm font-bold text-slate-100">Uji & Cek Berita Mandiri (AI Local)</h3>
-            <p class="text-[11px] text-slate-400">Ketik narasi atau judul berita untuk dianalisis model AI secara instan</p>
+            <p class="text-[11px] text-slate-400">Deteksi otomatis lokasi pembuat serta pemetaan penyebar di seluruh Indonesia</p>
           </div>
         </div>
         <button id="btn-close-checker" class="text-slate-400 hover:text-slate-200 p-1">
@@ -343,48 +343,30 @@
         ></textarea>
       </div>
 
-      <!-- Input Lokasi Pembuat / Kejadian Berita -->
-      <div>
-        <div class="flex items-center justify-between mb-1.5">
-          <label class="text-[11px] font-semibold text-slate-300 flex items-center">
-            <i data-lucide="map-pin" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i>
-            Lokasi Pembuat / Penyebar Berita:
-          </label>
-          <span class="text-[10px] text-cyan-400 font-mono">✨ Auto-terdeteksi dari teks jika ada</span>
-        </div>
-        <div class="relative">
-          <input 
-            id="checker-input-location" 
-            type="text" 
-            list="cities-datalist"
-            placeholder="Pilih kota di Indonesia (cth: Surabaya, Medan, Makassar, Jayapura...)" 
-            class="w-full p-2.5 bg-slate-950/70 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
-          />
-          <datalist id="cities-datalist"></datalist>
+      <!-- Informasi Deteksi Otomatis (Tanpa Form Manual) -->
+      <div class="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/40 text-[11px] text-cyan-300 flex items-start space-x-2">
+        <i data-lucide="radar" class="w-4 h-4 text-cyan-400 shrink-0 mt-0.5"></i>
+        <div>
+          <span class="font-bold text-slate-100 block mb-0.5">Deteksi Lokasi 100% Otomatis:</span>
+          <p class="text-slate-300 text-[10px] leading-relaxed">
+            AI menganalisis konten untuk menentukan pusat asal pembuat berita dan otomatis memetakan titik-titik penyebar berita (viral spreaders) di berbagai kota di Indonesia ke radar.
+          </p>
         </div>
       </div>
 
-      <!-- Action Buttons -->
-      <div class="flex items-center justify-between pt-1">
-        <button 
-          id="btn-run-analysis" 
-          class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl flex items-center space-x-1.5 border border-slate-700 transition"
-        >
-          <i data-lucide="search" class="w-3.5 h-3.5"></i>
-          <span id="btn-analysis-text">Preview AI</span>
-        </button>
-
+      <!-- Action Button -->
+      <div>
         <button 
           id="btn-direct-plot" 
-          class="px-4 py-2 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20 transition active:scale-95"
+          class="w-full py-2.5 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-xs rounded-xl flex items-center justify-center space-x-2 shadow-lg shadow-cyan-500/20 transition active:scale-95"
         >
-          <i data-lucide="map-pin" class="w-4 h-4"></i>
-          <span id="btn-plot-text">Analisis & Plot Langsung ke Peta 🚀</span>
+          <i data-lucide="sparkles" class="w-4 h-4"></i>
+          <span id="btn-plot-text">⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀</span>
         </button>
       </div>
 
       <!-- Hasil Analisis Container -->
-      <div id="checker-result-box" class="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5 hidden">
+      <div id="checker-result-box" class="p-3.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2.5 hidden">
         <div class="flex items-center justify-between">
           <span class="text-xs font-semibold text-slate-300">Hasil Analisis Model:</span>
           <span id="res-badge" class="px-2.5 py-0.5 rounded text-[11px] font-bold uppercase">
@@ -403,21 +385,19 @@
           </div>
         </div>
 
-        <!-- Terdeteksi Lokasi -->
-        <div class="text-xs text-slate-300 flex items-center">
-          <i data-lucide="map-pin" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i>
-          <span>Lokasi Spasial: <strong id="res-location" class="text-white ml-1">--</strong></span>
-        </div>
-
-        <!-- Tombol Tambahkan ke Peta -->
-        <div class="pt-2 border-t border-slate-800 flex justify-end">
-          <button 
-            id="btn-plot-to-map" 
-            class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg flex items-center space-x-1.5 shadow transition"
-          >
-            <i data-lucide="map" class="w-3.5 h-3.5"></i>
-            <span>Plot & Tampilkan di Peta</span>
-          </button>
+        <!-- Info Episentrum & Titik Penyebar -->
+        <div class="pt-2 border-t border-slate-800/80 space-y-1.5 text-xs">
+          <div class="flex items-center text-slate-300">
+            <i data-lucide="radio" class="w-3.5 h-3.5 mr-1.5 text-red-400"></i>
+            <span>Pusat Pembuat (Origin): <strong id="res-origin" class="text-cyan-300 ml-1">--</strong></span>
+          </div>
+          <div class="flex items-start text-slate-300">
+            <i data-lucide="share-2" class="w-3.5 h-3.5 mr-1.5 text-emerald-400 shrink-0 mt-0.5"></i>
+            <div class="flex-1">
+              <span class="block">Titik Penyebar (Terdeteksi Otomatis):</span>
+              <div id="res-spreaders-list" class="mt-1 flex flex-wrap gap-1"></div>
+            </div>
+          </div>
         </div>
       </div>
 

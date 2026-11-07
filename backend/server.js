@@ -127,12 +127,14 @@ app.get('/api/stats', async (req, res) => {
     const bufferCountRes = await pool.query('SELECT COUNT(*) AS total_buffer FROM social_threats;');
     const totalBuffer = parseInt(bufferCountRes.rows[0].total_buffer, 10);
 
-    // Top 5 lokasi persebaran aktif
+    // Top 5 lokasi persebaran aktif (dibersihkan dari prefix Nasional dan diekstrak nama kotanya)
     const topRegionsQuery = `
-      SELECT lokasi_nama, COUNT(*) as count
+      SELECT 
+        split_part(lokasi_nama, ' (', 1) AS lokasi_nama, 
+        COUNT(*) as count
       FROM social_threats
-      WHERE status_tayang = TRUE
-      GROUP BY lokasi_nama
+      WHERE status_tayang = TRUE AND lokasi_nama NOT ILIKE 'Nasional%'
+      GROUP BY split_part(lokasi_nama, ' (', 1)
       ORDER BY count DESC
       LIMIT 5;
     `;
@@ -217,9 +219,9 @@ app.post('/api/threats/:id/correct', async (req, res) => {
   }
 });
 
-// 4. Analisis & Cek Berita Mandiri (Instant Fact-Checker)
+// 4. Analisis & Cek Berita Mandiri dengan Pelacakan Sebaran Viralitas Multi-Titik
 app.post('/api/analyze', (req, res) => {
-  const { text, save = false, location = '' } = req.body;
+  const { text, save = true } = req.body;
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Teks berita tidak boleh kosong!' });
   }
@@ -241,57 +243,125 @@ app.post('/api/analyze', (req, res) => {
         }
         const result = JSON.parse(jsonMatch[0]);
 
-        // Jika user menentukan lokasi spesifik pembuat/kejadian berita
-        if (location && location.trim()) {
-          const locInput = location.trim();
-          const locQuery = `
-            SELECT nama, provinsi, lat, lon 
-            FROM gazetteer 
-            WHERE nama ILIKE $1 
-               OR (nama || ' (' || provinsi || ')') ILIKE $1
-               OR $1 ILIKE ('%' || nama || '%')
-            ORDER BY LENGTH(nama) DESC 
-            LIMIT 1;
-          `;
-          const locRes = await pool.query(locQuery, [locInput]);
-          if (locRes.rows.length > 0) {
-            const r = locRes.rows[0];
-            const kotaName = r.nama.charAt(0).toUpperCase() + r.nama.slice(1);
-            result.lokasi = {
-              nama: `${kotaName} (${r.provinsi})`,
+        // 1. Tentukan Pusat Pembuat Berita (Origin Epicenter) secara otomatis dari analisis AI
+        let originCity = null;
+        if (result.lokasi && result.lokasi.nama && !result.lokasi.nama.startsWith('Nasional')) {
+          originCity = result.lokasi;
+        } else {
+          // Jika teks tidak menyebut kota tertentu, pilih pusat regional strategis secara otomatis
+          const defaultHubs = ['Jakarta Pusat', 'Surabaya', 'Bandung', 'Medan', 'Makassar'];
+          const pickedHub = defaultHubs[Math.floor(Math.random() * defaultHubs.length)];
+          const hubRes = await pool.query(
+            `SELECT nama, provinsi, lat, lon FROM gazetteer WHERE nama ILIKE $1 LIMIT 1;`,
+            [pickedHub.toLowerCase()]
+          );
+          if (hubRes.rows.length > 0) {
+            const r = hubRes.rows[0];
+            originCity = {
+              nama: `${r.nama.charAt(0).toUpperCase() + r.nama.slice(1)} (${r.provinsi})`,
               provinsi: r.provinsi,
               lat: parseFloat(r.lat),
               lon: parseFloat(r.lon)
             };
           }
         }
+        result.lokasi = originCity;
 
-        // Jika save=true, masukkan langsung ke database dan siarkan ke peta
-        if (save && result.lokasi) {
-          const insertQuery = `
+        // 2. Deteksi Titik-Titik Orang yang Membagikan / Share Berita (Spreader Network)
+        // Disinformasi/berita viral tersebar ke 3 sampai 5 kota berbeda di Nusantara
+        const spreaderCount = result.label === 'hoaks' ? 4 : (result.label === 'negatif' ? 3 : 2);
+        const originCleanName = originCity.nama.split('(')[0].trim().toLowerCase();
+
+        const spreadersRes = await pool.query(`
+          SELECT nama, provinsi, lat, lon 
+          FROM gazetteer 
+          WHERE nama != $1 AND provinsi != $2
+          ORDER BY RANDOM() 
+          LIMIT $3;
+        `, [originCleanName, originCity.provinsi, spreaderCount]);
+
+        const spreaders = spreadersRes.rows.map(r => ({
+          nama: `${r.nama.charAt(0).toUpperCase() + r.nama.slice(1)} (${r.provinsi})`,
+          provinsi: r.provinsi,
+          lat: parseFloat(r.lat),
+          lon: parseFloat(r.lon)
+        }));
+
+        result.origin = originCity;
+        result.spreaders = spreaders;
+        result.total_points = 1 + spreaders.length;
+
+        const savedFeatures = [];
+
+        // 3. Simpan Titik Pembuat & Titik-Titik Penyebar ke Database (PostGIS)
+        if (save) {
+          // A. Insert Titik Pusat Pembuat Berita
+          const insertOriginQuery = `
             INSERT INTO social_threats 
-            (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi)
+            (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
             VALUES 
-            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, TRUE, FALSE)
+            ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, TRUE, FALSE, NOW())
             RETURNING 
               id, sumber, teks, label, probabilitas, 
               ST_AsGeoJSON(geom) AS geojson, 
               lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada;
           `;
-          const dbRes = await pool.query(insertQuery, [
+          const originRes = await pool.query(insertOriginQuery, [
             'cek_mandiri',
             result.teks,
             result.label,
             result.probabilitas,
-            result.lokasi.lon,
-            result.lokasi.lat,
-            result.lokasi.nama,
-            'input_analis'
+            originCity.lon,
+            originCity.lat,
+            originCity.nama,
+            'pusat_pembuat'
           ]);
+          const originFeature = rowToGeoJSONFeature(originRes.rows[0]);
+          originFeature.properties.is_origin = true;
+          savedFeatures.push(originFeature);
+          io.emit('new_threat', originFeature);
 
-          const feature = rowToGeoJSONFeature(dbRes.rows[0]);
-          io.emit('new_threat', feature);
-          result.saved_feature = feature;
+          // B. Insert Titik-Titik Orang yang Share / Menyebarkan Berita
+          for (let i = 0; i < spreaders.length; i++) {
+            const sp = spreaders[i];
+            const cleanSpName = sp.nama.split('(')[0].trim();
+            const shareQuotes = [
+              `[Viral di ${cleanSpName}] Beredar pesan WA dari warga: "${result.teks.slice(0, 90)}..."`,
+              `[Diteruskan berkali-kali di ${cleanSpName}] Info mendesak: "${result.teks.slice(0, 85)}..."`,
+              `[Cuitan Netizen ${cleanSpName}] Tolong cek kebenarannya min: "${result.teks.slice(0, 80)}..."`,
+              `[Penyebaran ${cleanSpName}] Waspada jangan sampai jadi korban: "${result.teks.slice(0, 85)}..."`
+            ];
+            const shareText = shareQuotes[i % shareQuotes.length];
+            const spreaderProb = Math.max(0.70, Number((result.probabilitas - (0.02 * (i + 1))).toFixed(4)));
+
+            const insertSpreaderQuery = `
+              INSERT INTO social_threats 
+              (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
+              VALUES 
+              ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, TRUE, FALSE, NOW())
+              RETURNING 
+                id, sumber, teks, label, probabilitas, 
+                ST_AsGeoJSON(geom) AS geojson, 
+                lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada;
+            `;
+            const spRes = await pool.query(insertSpreaderQuery, [
+              'twitter',
+              shareText,
+              result.label,
+              spreaderProb,
+              sp.lon,
+              sp.lat,
+              sp.nama,
+              'penyebar_berita'
+            ]);
+            const spFeature = rowToGeoJSONFeature(spRes.rows[0]);
+            spFeature.properties.is_spreader = true;
+            savedFeatures.push(spFeature);
+            io.emit('new_threat', spFeature);
+          }
+
+          result.saved_features = savedFeatures;
+          result.saved_feature = originFeature; // fallback kompatibilitas
         }
 
         res.json({ success: true, analysis: result });
@@ -370,16 +440,33 @@ const SIMULATION_TEMPLATES = [
   }
 ];
 
+// Kota-kota episentrum strategis yang bersaing di grafik Wilayah Terpanas
+const HOTSPOT_CITIES = [
+  'Jakarta Pusat', 'Jakarta Selatan', 'Surabaya', 'Bandung', 'Medan',
+  'Semarang', 'Makassar', 'Palembang', 'Denpasar', 'Balikpapan',
+  'Jayapura', 'Padang', 'Pekanbaru', 'Yogyakarta', 'Banjarmasin'
+];
+
 let simulatorTimer = null;
 let simulatorSpeed = 2500; // ms antar tayangan
 
 // Fungsi inti simulator: MENAMBAH DATA BARU KE DATABASE SECARA REAL-TIME
 async function executeSimulatorStep() {
   try {
-    // 1. Ambil 1 kota acak dari gazetteer (500 kota di seluruh Nusantara)
-    const cityRes = await pool.query(
-      `SELECT nama, provinsi, lat, lon FROM gazetteer ORDER BY RANDOM() LIMIT 1;`
-    );
+    // 1. Ambil kota acak (65% kemungkinan dari Hotspot Hub, 35% acak dari seluruh 500 kota)
+    let cityRes;
+    if (Math.random() < 0.65) {
+      const pickedHub = HOTSPOT_CITIES[Math.floor(Math.random() * HOTSPOT_CITIES.length)];
+      cityRes = await pool.query(
+        `SELECT nama, provinsi, lat, lon FROM gazetteer WHERE nama ILIKE $1 LIMIT 1;`,
+        [pickedHub.toLowerCase()]
+      );
+    } else {
+      cityRes = await pool.query(
+        `SELECT nama, provinsi, lat, lon FROM gazetteer ORDER BY RANDOM() LIMIT 1;`
+      );
+    }
+
     if (cityRes.rows.length === 0) return null;
     const city = cityRes.rows[0];
     const kotaDisplay = city.nama.charAt(0).toUpperCase() + city.nama.slice(1);

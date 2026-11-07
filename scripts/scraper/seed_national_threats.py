@@ -74,21 +74,53 @@ def seed_national_threats():
             cur.execute("TRUNCATE social_threats RESTART IDENTITY;")
             print("[✓] Tabel social_threats dibersihkan (TRUNCATE).")
 
-            # Pilih kota-kota strategis dari setiap pulau
+            # 1. Hub Hotspot dengan bobot ancaman tinggi untuk grafik Wilayah Terpanas
+            hotspot_weights = {
+                "jakarta pusat": 12,
+                "surabaya": 9,
+                "bandung": 8,
+                "medan": 7,
+                "makassar": 6,
+                "semarang": 5,
+                "palembang": 4,
+                "denpasar": 4,
+            }
+
+            city_map = {c[0].lower(): c for c in all_cities}
+            target_items = []
+
+            # Tambahkan data tayang untuk hotspot utama
+            for hub_name, count in hotspot_weights.items():
+                city_data = city_map.get(hub_name)
+                if not city_data:
+                    # Cari parsial jika tidak exact match
+                    for k, v in city_map.items():
+                        if hub_name in k:
+                            city_data = v
+                            break
+                if city_data:
+                    for _ in range(count):
+                        target_items.append((city_data, True))
+
+            # Tambahkan 85 kota perwakilan lainnya dari berbagai pulau (Tayang)
+            other_cities = [c for c in all_cities if c[0].lower() not in hotspot_weights]
             random.seed(2026)
-            shuffled_cities = list(all_cities)
-            random.shuffle(shuffled_cities)
+            random.shuffle(other_cities)
+
+            for c in other_cities[:85]:
+                target_items.append((c, True))
+
+            # Tambahkan 130 data cadangan untuk Simulator (is_tayang = False)
+            for c in (other_cities[85:180] + other_cities[:35]):
+                target_items.append((c, False))
+
+            random.shuffle(target_items)
+            print(f"[✓] Menyiapkan {len(target_items)} ancaman siber sosial berbobot...")
 
             total_created = 0
             tayang_count = 0
 
-            # Target: ~260 data
-            # 120 tayang (langsung terlihat di peta seluruh Indonesia)
-            # 140 buffer (menunggu disiarkan oleh simulator)
-            target_cities = shuffled_cities[:130] * 2  # 260 total
-            random.shuffle(target_cities)
-
-            for idx, (nama_kota, prov, lat, lon) in enumerate(target_cities):
+            for idx, ((nama_kota, prov, lat, lon), is_tayang) in enumerate(target_items):
                 kota_display = nama_kota.title()
                 kota_slug = nama_kota.lower().replace(" ", "-")
                 
@@ -101,8 +133,6 @@ def seed_national_threats():
                 label = pred["label"]
                 prob = pred["probabilitas"]
 
-                # 120 data pertama dijadikan TAYANG (TRUE) agar langsung tampil di peta
-                is_tayang = True if idx < 120 else False
                 if is_tayang:
                     tayang_count += 1
 

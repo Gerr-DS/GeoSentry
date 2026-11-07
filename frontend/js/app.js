@@ -414,102 +414,133 @@ async function submitCorrection(id, newLabel) {
   }
 }
 
-// Cek Berita Mandiri dengan AI
-async function runNewsAnalysis(saveToMap = false) {
+// Cek Berita Mandiri dengan AI & Pelacakan Sebaran Viralitas Multi-Titik
+async function runNewsAnalysis(saveToMap = true) {
   const textInput = document.getElementById('checker-input-text');
-  const locInput = document.getElementById('checker-input-location');
-  const text = textInput.value.trim();
-  const location = locInput ? locInput.value.trim() : '';
+  const text = textInput ? textInput.value.trim() : '';
 
   if (!text) {
     alert('Silakan masukkan teks narasi atau judul berita terlebih dahulu!');
     return;
   }
 
-  const btnAnalysisText = document.getElementById('btn-analysis-text');
   const btnPlotText = document.getElementById('btn-plot-text');
-  if (btnAnalysisText) btnAnalysisText.innerText = 'Menganalisis...';
-  if (btnPlotText) btnPlotText.innerText = 'Menyimpan & Plot...';
+  if (btnPlotText) btnPlotText.innerText = '⚡ AI Sedang Menganalisis & Melacak Sebaran...';
 
   try {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, save: saveToMap, location })
+      body: JSON.stringify({ text, save: saveToMap })
     });
     const data = await res.json();
-    if (btnAnalysisText) btnAnalysisText.innerText = 'Preview AI';
-    if (btnPlotText) btnPlotText.innerText = 'Analisis & Plot Langsung ke Peta 🚀';
+    if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
 
     if (data.success && data.analysis) {
       const a = data.analysis;
       AppState.lastAnalysis = a;
 
-      // Update Lokasi di input jika sebelumnya kosong
-      if (locInput && a.lokasi && !locInput.value) {
-        locInput.value = a.lokasi.nama;
-      }
-
-      // Tampilkan Result Box
+      // Tampilkan Result Box di Modal
       const resultBox = document.getElementById('checker-result-box');
-      resultBox.classList.remove('hidden');
+      if (resultBox) resultBox.classList.remove('hidden');
 
-      // Update Badge
+      // Update Badge Klasifikasi
       const badge = document.getElementById('res-badge');
-      if (a.label === 'hoaks') {
-        badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-red-950 text-red-400 border border-red-800';
-        badge.innerText = '🔴 TERDETEKSI HOAKS';
-      } else if (a.label === 'fakta') {
-        badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-blue-950 text-blue-400 border border-blue-800';
-        badge.innerText = '🔵 FAKTA / BERITA VALID';
-      } else {
-        badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-950 text-amber-400 border border-amber-800';
-        badge.innerText = '🟡 SENTIMEN NEGATIF / PROVOKASI';
+      if (badge) {
+        if (a.label === 'hoaks') {
+          badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-red-950 text-red-400 border border-red-800';
+          badge.innerText = '🔴 TERDETEKSI HOAKS';
+        } else if (a.label === 'fakta') {
+          badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-blue-950 text-blue-400 border border-blue-800';
+          badge.innerText = '🔵 FAKTA / BERITA VALID';
+        } else {
+          badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-950 text-amber-400 border border-amber-800';
+          badge.innerText = '🟡 SENTIMEN NEGATIF / PROVOKASI';
+        }
       }
 
       // Update Confidence Bar
       const confPercent = Math.round(a.probabilitas * 100);
-      document.getElementById('res-confidence').innerText = `${confPercent}%`;
+      const confEl = document.getElementById('res-confidence');
+      if (confEl) confEl.innerText = `${confPercent}%`;
       const bar = document.getElementById('res-prob-bar');
-      bar.style.width = `${confPercent}%`;
-      bar.className = `h-2 rounded-full transition-all duration-500 ${a.label === 'hoaks' ? 'bg-red-500' : (a.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}`;
+      if (bar) {
+        bar.style.width = `${confPercent}%`;
+        bar.className = `h-2 rounded-full transition-all duration-500 ${a.label === 'hoaks' ? 'bg-red-500' : (a.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}`;
+      }
 
-      // Update Lokasi
-      const locText = a.lokasi ? `${a.lokasi.nama}` : 'Nasional';
-      document.getElementById('res-location').innerText = locText;
+      // Update Info Episentrum Pembuat (Origin)
+      const originName = a.origin ? a.origin.nama : (a.lokasi ? a.lokasi.nama : 'Nasional');
+      const originEl = document.getElementById('res-origin');
+      if (originEl) originEl.innerText = originName;
 
-      // Jika langsung di-plot ke peta (save=true)
-      if (saveToMap && a.saved_feature) {
-        const feat = a.saved_feature;
-        document.getElementById('modal-checker').classList.add('hidden');
-        textInput.value = '';
-        if (locInput) {
-          locInput.value = '';
-          delete locInput.dataset.manual;
-        }
+      // Update Info Titik-Titik Penyebar (Spreaders)
+      const spreadersList = document.getElementById('res-spreaders-list');
+      if (spreadersList && a.spreaders && a.spreaders.length > 0) {
+        spreadersList.innerHTML = a.spreaders.map(s => {
+          const cName = s.nama.split('(')[0].trim();
+          return `<span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-mono text-[10px]">📍 ${cName}</span>`;
+        }).join('');
+      }
 
-        // Tambahkan ke peta jika belum
-        addThreatToMap(feat, true);
-        fetchStats();
+      // PEMETAAN MULTI-TITIK DI PETA LEAFLET (Origin + 3-5 Penyebar)
+      const featuresToPlot = a.saved_features || (a.saved_feature ? [a.saved_feature] : []);
+      if (featuresToPlot.length > 0) {
+        // Plot setiap titik ke peta
+        featuresToPlot.forEach(feat => {
+          addThreatToMap(feat, false);
+        });
 
-        // Animasi: Terbang ke lokasi pembuat berita tersebut!
-        if (feat.geometry && feat.geometry.coordinates) {
-          const [lon, lat] = feat.geometry.coordinates;
-          AppState.map.flyTo([lat, lon], 9, { duration: 1.5 });
-          setTimeout(() => {
-            const marker = AppState.markers.get(feat.properties.id);
-            if (marker) {
-              marker.openPopup();
+        // Hitung batas geografis (LatLngBounds) yang mencakup seluruh titik origin + spreader
+        const bounds = L.latLngBounds();
+        let originCoord = null;
+        let originId = null;
+
+        featuresToPlot.forEach(feat => {
+          if (feat.geometry && feat.geometry.coordinates) {
+            const [lon, lat] = feat.geometry.coordinates;
+            bounds.extend([lat, lon]);
+            if (feat.properties && feat.properties.sumber === 'cek_mandiri') {
+              originCoord = [lat, lon];
+              originId = feat.properties.id;
             }
-          }, 1600);
+          }
+        });
+
+        // Fallback jika originId belum ketemu
+        if (!originId && featuresToPlot[0] && featuresToPlot[0].properties) {
+          originId = featuresToPlot[0].properties.id;
+          const [lon, lat] = featuresToPlot[0].geometry.coordinates;
+          originCoord = [lat, lon];
         }
+
+        // Tutup modal secara mulus setelah 800ms agar user bisa melihat langsung sebaran di peta
+        setTimeout(() => {
+          const modalEl = document.getElementById('modal-checker');
+          if (modalEl) modalEl.classList.add('hidden');
+          if (textInput) textInput.value = '';
+
+          // Arahkan kamera peta ke seluruh titik sebaran di Indonesia
+          if (bounds.isValid()) {
+            AppState.map.fitBounds(bounds, { padding: [60, 60], maxZoom: 8, duration: 1.5 });
+          }
+
+          // Buka popup pada episentrum pembuat
+          setTimeout(() => {
+            if (originId && AppState.markers.has(originId)) {
+              AppState.markers.get(originId).openPopup();
+            }
+          }, 1200);
+        }, 800);
+
+        // Update statistik & grafik wilayah terpanas secara langsung
+        fetchStats();
       }
     } else {
       alert(data.error || 'Gagal menganalisis teks.');
     }
   } catch (err) {
-    if (btnAnalysisText) btnAnalysisText.innerText = 'Preview AI';
-    if (btnPlotText) btnPlotText.innerText = 'Analisis & Plot Langsung ke Peta 🚀';
+    if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
     console.error('[!] Error saat menganalisis berita:', err);
     alert('Terjadi kesalahan koneksi saat menganalisis berita.');
   }
@@ -787,41 +818,18 @@ function initUIEvents() {
     }
   };
 
-  btnRunAnalysis.onclick = () => {
-    runNewsAnalysis(false);
-  };
-
-  btnPlotToMap.onclick = () => {
-    runNewsAnalysis(true);
-  };
+  if (btnRunAnalysis) {
+    btnRunAnalysis.onclick = () => runNewsAnalysis(false);
+  }
+  if (btnPlotToMap) {
+    btnPlotToMap.onclick = () => runNewsAnalysis(true);
+  }
 
   const btnDirectPlot = document.getElementById('btn-direct-plot');
   if (btnDirectPlot) {
     btnDirectPlot.onclick = () => {
       runNewsAnalysis(true);
     };
-  }
-
-  // Auto-detect lokasi jika teks berita menyebut nama kota
-  const textInput = document.getElementById('checker-input-text');
-  const locInput = document.getElementById('checker-input-location');
-  if (textInput && locInput) {
-    textInput.addEventListener('input', () => {
-      if (!AppState.cityList || AppState.cityList.length === 0) return;
-      const val = textInput.value.toLowerCase();
-      if (!locInput.dataset.manual) {
-        for (const c of AppState.cityList) {
-          if (c.nama && c.nama.length > 3 && val.includes(c.nama.toLowerCase())) {
-            const capName = c.nama.charAt(0).toUpperCase() + c.nama.slice(1);
-            locInput.value = `${capName} (${c.provinsi})`;
-            break;
-          }
-        }
-      }
-    });
-    locInput.addEventListener('input', () => {
-      locInput.dataset.manual = 'true';
-    });
   }
 }
 
