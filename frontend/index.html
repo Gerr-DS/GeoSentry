@@ -338,20 +338,48 @@
         <textarea 
           id="checker-input-text" 
           rows="3" 
-          placeholder="Contoh: Beredar kabar hoaks air sumur warga di Bandung Barat tercemar racun kimia mematikan..." 
+          placeholder="Contoh: Beredar kabar hoaks air sumur warga di Makassar tercemar racun kimia..." 
           class="w-full p-3 bg-slate-950/70 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 leading-relaxed"
         ></textarea>
       </div>
 
-      <!-- Action Button -->
-      <div class="flex items-center justify-between">
-        <span class="text-[10px] text-slate-500">Mendeteksi kategori, skor, dan lokasi kota di Indonesia</span>
+      <!-- Input Lokasi Pembuat / Kejadian Berita -->
+      <div>
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="text-[11px] font-semibold text-slate-300 flex items-center">
+            <i data-lucide="map-pin" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i>
+            Lokasi Pembuat / Penyebar Berita:
+          </label>
+          <span class="text-[10px] text-cyan-400 font-mono">✨ Auto-terdeteksi dari teks jika ada</span>
+        </div>
+        <div class="relative">
+          <input 
+            id="checker-input-location" 
+            type="text" 
+            list="cities-datalist"
+            placeholder="Pilih kota di Indonesia (cth: Surabaya, Medan, Makassar, Jayapura...)" 
+            class="w-full p-2.5 bg-slate-950/70 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+          />
+          <datalist id="cities-datalist"></datalist>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center justify-between pt-1">
         <button 
           id="btn-run-analysis" 
-          class="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20 transition active:scale-95"
+          class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl flex items-center space-x-1.5 border border-slate-700 transition"
         >
-          <i data-lucide="cpu" class="w-4 h-4"></i>
-          <span id="btn-analysis-text">Analisis dengan AI</span>
+          <i data-lucide="search" class="w-3.5 h-3.5"></i>
+          <span id="btn-analysis-text">Preview AI</span>
+        </button>
+
+        <button 
+          id="btn-direct-plot" 
+          class="px-4 py-2 bg-gradient-to-r from-cyan-500 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-bold text-xs rounded-xl flex items-center space-x-1.5 shadow-lg shadow-cyan-500/20 transition active:scale-95"
+        >
+          <i data-lucide="map-pin" class="w-4 h-4"></i>
+          <span id="btn-plot-text">Analisis & Plot Langsung ke Peta 🚀</span>
         </button>
       </div>
 

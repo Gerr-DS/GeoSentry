@@ -417,27 +417,38 @@ async function submitCorrection(id, newLabel) {
 // Cek Berita Mandiri dengan AI
 async function runNewsAnalysis(saveToMap = false) {
   const textInput = document.getElementById('checker-input-text');
+  const locInput = document.getElementById('checker-input-location');
   const text = textInput.value.trim();
+  const location = locInput ? locInput.value.trim() : '';
+
   if (!text) {
     alert('Silakan masukkan teks narasi atau judul berita terlebih dahulu!');
     return;
   }
 
-  const btnText = document.getElementById('btn-analysis-text');
-  btnText.innerText = 'Menganalisis...';
+  const btnAnalysisText = document.getElementById('btn-analysis-text');
+  const btnPlotText = document.getElementById('btn-plot-text');
+  if (btnAnalysisText) btnAnalysisText.innerText = 'Menganalisis...';
+  if (btnPlotText) btnPlotText.innerText = 'Menyimpan & Plot...';
 
   try {
     const res = await fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, save: saveToMap })
+      body: JSON.stringify({ text, save: saveToMap, location })
     });
     const data = await res.json();
-    btnText.innerText = 'Analisis dengan AI';
+    if (btnAnalysisText) btnAnalysisText.innerText = 'Preview AI';
+    if (btnPlotText) btnPlotText.innerText = 'Analisis & Plot Langsung ke Peta 🚀';
 
     if (data.success && data.analysis) {
       const a = data.analysis;
       AppState.lastAnalysis = a;
+
+      // Update Lokasi di input jika sebelumnya kosong
+      if (locInput && a.lokasi && !locInput.value) {
+        locInput.value = a.lokasi.nama;
+      }
 
       // Tampilkan Result Box
       const resultBox = document.getElementById('checker-result-box');
@@ -464,22 +475,63 @@ async function runNewsAnalysis(saveToMap = false) {
       bar.className = `h-2 rounded-full transition-all duration-500 ${a.label === 'hoaks' ? 'bg-red-500' : (a.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}`;
 
       // Update Lokasi
-      const locText = a.lokasi ? `${a.lokasi.nama} (${a.lokasi.provinsi})` : 'Nasional';
+      const locText = a.lokasi ? `${a.lokasi.nama}` : 'Nasional';
       document.getElementById('res-location').innerText = locText;
 
-      // Jika langsung di-plot ke peta
-      if (saveToMap && data.analysis.saved_feature) {
+      // Jika langsung di-plot ke peta (save=true)
+      if (saveToMap && a.saved_feature) {
+        const feat = a.saved_feature;
         document.getElementById('modal-checker').classList.add('hidden');
         textInput.value = '';
+        if (locInput) {
+          locInput.value = '';
+          delete locInput.dataset.manual;
+        }
+
+        // Tambahkan ke peta jika belum
+        addThreatToMap(feat, true);
         fetchStats();
+
+        // Animasi: Terbang ke lokasi pembuat berita tersebut!
+        if (feat.geometry && feat.geometry.coordinates) {
+          const [lon, lat] = feat.geometry.coordinates;
+          AppState.map.flyTo([lat, lon], 9, { duration: 1.5 });
+          setTimeout(() => {
+            const marker = AppState.markers.get(feat.properties.id);
+            if (marker) {
+              marker.openPopup();
+            }
+          }, 1600);
+        }
       }
     } else {
       alert(data.error || 'Gagal menganalisis teks.');
     }
   } catch (err) {
-    btnText.innerText = 'Analisis dengan AI';
+    if (btnAnalysisText) btnAnalysisText.innerText = 'Preview AI';
+    if (btnPlotText) btnPlotText.innerText = 'Analisis & Plot Langsung ke Peta 🚀';
     console.error('[!] Error saat menganalisis berita:', err);
     alert('Terjadi kesalahan koneksi saat menganalisis berita.');
+  }
+}
+
+// Memuat daftar kota dari backend untuk autocomplete
+async function loadCitiesDatalist() {
+  try {
+    const res = await fetch('/api/cities');
+    const cities = await res.json();
+    AppState.cityList = cities;
+    const datalist = document.getElementById('cities-datalist');
+    if (!datalist) return;
+    datalist.innerHTML = '';
+    cities.forEach(c => {
+      const opt = document.createElement('option');
+      const capName = c.nama.charAt(0).toUpperCase() + c.nama.slice(1);
+      opt.value = `${capName} (${c.provinsi})`;
+      datalist.appendChild(opt);
+    });
+  } catch (err) {
+    console.error('[!] Gagal memuat datalist kota:', err);
   }
 }
 
@@ -738,6 +790,35 @@ function initUIEvents() {
   btnPlotToMap.onclick = () => {
     runNewsAnalysis(true);
   };
+
+  const btnDirectPlot = document.getElementById('btn-direct-plot');
+  if (btnDirectPlot) {
+    btnDirectPlot.onclick = () => {
+      runNewsAnalysis(true);
+    };
+  }
+
+  // Auto-detect lokasi jika teks berita menyebut nama kota
+  const textInput = document.getElementById('checker-input-text');
+  const locInput = document.getElementById('checker-input-location');
+  if (textInput && locInput) {
+    textInput.addEventListener('input', () => {
+      if (!AppState.cityList || AppState.cityList.length === 0) return;
+      const val = textInput.value.toLowerCase();
+      if (!locInput.dataset.manual) {
+        for (const c of AppState.cityList) {
+          if (c.nama && c.nama.length > 3 && val.includes(c.nama.toLowerCase())) {
+            const capName = c.nama.charAt(0).toUpperCase() + c.nama.slice(1);
+            locInput.value = `${capName} (${c.provinsi})`;
+            break;
+          }
+        }
+      }
+    });
+    locInput.addEventListener('input', () => {
+      locInput.dataset.manual = 'true';
+    });
+  }
 }
 
 // Inisialisasi Utama
@@ -746,6 +827,7 @@ window.addEventListener('DOMContentLoaded', () => {
   initCharts();
   initWebSocket();
   initUIEvents();
+  loadCitiesDatalist();
   fetchInitialThreats();
   fetchStats();
 });

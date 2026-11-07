@@ -219,7 +219,7 @@ app.post('/api/threats/:id/correct', async (req, res) => {
 
 // 4. Analisis & Cek Berita Mandiri (Instant Fact-Checker)
 app.post('/api/analyze', (req, res) => {
-  const { text, save = false } = req.body;
+  const { text, save = false, location = '' } = req.body;
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Teks berita tidak boleh kosong!' });
   }
@@ -240,6 +240,31 @@ app.post('/api/analyze', (req, res) => {
           throw new Error('Tidak ditemukan format JSON pada keluaran Python: ' + stdout);
         }
         const result = JSON.parse(jsonMatch[0]);
+
+        // Jika user menentukan lokasi spesifik pembuat/kejadian berita
+        if (location && location.trim()) {
+          const locInput = location.trim();
+          const locQuery = `
+            SELECT nama, provinsi, lat, lon 
+            FROM gazetteer 
+            WHERE nama ILIKE $1 
+               OR (nama || ' (' || provinsi || ')') ILIKE $1
+               OR $1 ILIKE ('%' || nama || '%')
+            ORDER BY LENGTH(nama) DESC 
+            LIMIT 1;
+          `;
+          const locRes = await pool.query(locQuery, [locInput]);
+          if (locRes.rows.length > 0) {
+            const r = locRes.rows[0];
+            const kotaName = r.nama.charAt(0).toUpperCase() + r.nama.slice(1);
+            result.lokasi = {
+              nama: `${kotaName} (${r.provinsi})`,
+              provinsi: r.provinsi,
+              lat: parseFloat(r.lat),
+              lon: parseFloat(r.lon)
+            };
+          }
+        }
 
         // Jika save=true, masukkan langsung ke database dan siarkan ke peta
         if (save && result.lokasi) {
@@ -276,6 +301,18 @@ app.post('/api/analyze', (req, res) => {
       }
     }
   );
+});
+
+// 5. Daftar Kota Gazetteer untuk Autocomplete Pilihan Lokasi
+app.get('/api/cities', async (req, res) => {
+  try {
+    const q = `SELECT DISTINCT nama, provinsi, lat, lon FROM gazetteer ORDER BY nama ASC;`;
+    const dbRes = await pool.query(q);
+    res.json(dbRes.rows);
+  } catch (err) {
+    console.error('[!] Error GET /api/cities:', err);
+    res.status(500).json({ error: 'Gagal mengambil data kota' });
+  }
 });
 
 // ==========================================
