@@ -107,7 +107,17 @@ BASE_HOAXES = [
     "Mulai besok Bank Indonesia menarik uang pecahan seratus ribu dan lima puluh ribu rupiah dari peredaran sehingga tidak berlaku lagi!",
     "Uang koin logam seribu rupiah gambar kelapa sawit dibeli oleh bank sentral seharga seratus juta rupiah per keping secara tunai!",
     "Beredar kabar ribuan tentara asing bersenjata mendarat diam-diam di bandara perintis pulau terpencil untuk mengambil alih aset negara!",
-    "Bumi itu terbukti datar dan pendaratan manusia di luar angkasa adalah sandiwara konspirasi elit global demi meraup keuntungan dana!"
+    "Bumi itu terbukti datar dan pendaratan manusia di luar angkasa adalah sandiwara konspirasi elit global demi meraup keuntungan dana!",
+    "DPR dan pemerintah sepakat jual pulau jawa dan aset tambang negara ke pihak china secara diam-diam!",
+    "Uang kas negara kosong ludes dirampok menteri yang sekarang kabur ke luar negeri membawa triliunan rupiah!",
+    "Ijazah presiden Joko Widodo terbukti palsu menurut temuan arsip dan tim investigasi independen!",
+    "Menteri agama korupsi dana kuota haji triliunan rupiah dan diam-diam ditangkap penegak hukum!",
+    "Gubernur dituduh selingkuh dengan artis ternama dan videonya telah beredar luas di media sosial!",
+    "Beredar kabar hoaks air sumur dan air minum kemasan warga di kota tercemar racun kimia mematikan!",
+    "Klaim palsu bantuan bansos tunai 5 juta rupiah per KK cair hari ini, segera daftar nomor HP lewat WhatsApp!",
+    "Kementerian Kesehatan mengumumkan vaksin wajib anak mengandung racun kimia berbahaya penyebab autis dan kematian!",
+    "Waspada gempa bumi megathrust magnitudo 10 SR malam ini dipastikan meratakan seluruh gedung di pesisir!",
+    "Bank Indonesia menarik peredaran uang kertas rupiah lama dan menggantinya dengan uang digital paksa!"
 ]
 
 # ==============================================================
@@ -124,7 +134,17 @@ BASE_NEGATIVES = [
     "Mampus kalian para penjilat kekuasaan! Rumah dan kendaraan keluarga kalian sudah ditandai, kami siap ratakan dengan tanah malam nanti!",
     "Boikot total dan jarah semua gudang logistik milik perusahaan itu, robohkan pagar dan hajar pengawalnya sampai babak belur!",
     "Gantung semua pejabat korup di tiang listrik jalanan tanpa sidang, biar jadi tontonan dan peringatan bagi antek-antek asing penguasa!",
-    "Ayo kawan buruh turun ke jalan dengan balok kayu dan batu, kita robohkan gerbang gedung dewan dan bikin rusuh sampai tuntutan dipenuhi!"
+    "Ayo kawan buruh turun ke jalan dengan balok kayu dan batu, kita robohkan gerbang gedung dewan dan bikin rusuh sampai tuntutan dipenuhi!",
+    "Pemerintah tidak becus mengurus rakyat miskin dan sengaja menindas orang kecil demi membela cukong pengusaha!",
+    "Aparat polisi korup dan bejat melindungi bandar judi online serta menembak mati warga tidak bersalah di jalan!",
+    "Dasar pejabat anjing bajingan perampok uang rakyat, tidak punya moral dan pantas digantung di depan umum!",
+    "Rezim dholim penindas rakyat harus kita tumbangkan sekarang juga dengan aksi massa turun ke jalan raya!",
+    "Polisi biadab membunuh demonstran tak bersalah di jalanan, jangan pernah ada kata maaf bagi aparat pembunuh!",
+    "Ganyang dan usir semua antek asing parasit yang merusak kedaulatan tanah air kita sekarang juga!",
+    "Bakar posko dan kantor dinas malam ini juga, buktikan kemarahan rakyat yang selama ini tertindas dan dizalimi!",
+    "Jokowi dan kroninya adalah antek pengkhianat bangsa yang harus diseret dan diadili di pengadilan rakyat!",
+    "Hancurkan gerbang gedung dewan dan lempari pejabat busuk itu dengan batu dan bom molotov sampai mereka lari ketakutan!",
+    "Sweeping seluruh markas musuh malam ini, siapkan sajam dan habisi siapa saja yang berani menghadang jalan kita!"
 ]
 
 # Variasi Wilayah Indonesia

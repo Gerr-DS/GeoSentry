@@ -21,52 +21,48 @@ _MODEL_BUNDLE = None
 # KNOWLEDGE BASE INDIKATOR DISINFORMASI (TurnBackHoax / CekFakta)
 # ==============================================================
 HOAX_INDICATOR_PATTERNS = [
-    # Isu Ijazah, Pemilu & Konspirasi Politik
-    re.compile(r"\b(?:ijazah\s+(?:jokowi\s+)?palsu|jokowi\s+ijazah\s+palsu)\b", re.I),
-    re.compile(r"\b(?:server\s+kpu\s+diretas|suara\s+dialihkan\s+100\s+persen|kpu\s+curang)\b", re.I),
-    re.compile(r"\b(?:menteri|pejabat|mentan|menkeu|menkopolhukam|menag)\b.*\b(?:mundur|mengundurkan\s+diri)\b", re.I),
+    # Explicit hoax labels & forwards
+    re.compile(r"\b(?:hoaks|hoax|berita\s+bohong|kabar\s+dusta|kabar\s+burung|fitnah\s+keji|pesan\s+berantai|klaim\s+palsu)\b", re.I),
+    re.compile(r"\b(?:sebar(?:kan)?\s+sebelum\s+dihapus|info\s+a1\b|jangan\s+berhenti\s+di\s+(?:kamu|anda)|bagikan\s+ke\s+(?:semua\s+)?grup|viralkan\s+sekarang|jangan\s+mau\s+dibohongi\s+media)\b", re.I),
+    
+    # Konspirasi & Politik / Pemilu Palsu
+    re.compile(r"\b(?:jual\s+pulau|jual\s+negara|dikuasai\s+china|tentara\s+china|pulau\s+jawa\s+dijual|indonesia\s+dijual|aset\s+negara\s+dijual)\b", re.I),
+    re.compile(r"\b(?:ijazah\s+(?:jokowi\s+)?palsu|jokowi\s+ijazah\s+palsu|presiden\s+bohong|janji\s+palsu)\b", re.I),
+    re.compile(r"\b(?:kas\s+negara\s+kosong|uang\s+negara\s+ludes|dirampok\s+pejabat|bank\s+bangkrut\s+total|uang\s+nasabah\s+disita)\b", re.I),
+    re.compile(r"\b(?:server\s+kpu\s+diretas|suara\s+dialihkan|kpu\s+curang|pemilu\s+curang)\b", re.I),
+    re.compile(r"\b(?:korupsi\s+.*triliunan|korupsi\s+dana\s+bansos|kabur\s+ke\s+luar\s+negeri|dituduh\s+selingkuh|video\s+syur\s+pejabat)\b", re.I),
+    re.compile(r"\b(?:menteri|pejabat|mentan|menkeu|menkopolhukam|menag)\b.*\b(?:mundur|mengundurkan\s+diri|kabur|ditangkap\s+kpk\s+palsu)\b", re.I),
     re.compile(r"\b(?:bumi\s+(?:itu\s+)?datar|konspirasi\s+elit\s+global|pendaratan\s+bulan\s+sandiwara|chemtrail)\b", re.I),
-    re.compile(r"\b(?:china|asing|komunis|tentara)\b.*\b(?:kirim\s+tentara|tentara\s+asing|mendarat\s+di\s+indonesia|ambil\s+alih)\b", re.I),
-    re.compile(r"\b(?:surat\s+edaran\s+palsu|pencopotan\s+jabatan\s+rahasia)\b", re.I),
 
-    # Isu Makanan, Minuman, Pseudosains & Urban Legend
-    re.compile(r"\b(?:beras\s+plastik|telur\s+(?:palsu|plastik|karet)|garam\s+(?:kaca|beracun)|sintetis\s+berbahan\s+lem)\b", re.I),
-    re.compile(r"\bsusu\s+beruang\b.*\b(?:racun|penyakit|sembuh|netralisir|paru)\b", re.I),
-    re.compile(r"\b(?:air\s+rebusan|ramuan|bawang\s+putih|bawang\s+merah|daun\s+sirsak|kelapa\s+hijau|jeruk\s+nipis|garam\s+kasar|air\s+hangat)\b.*\b(?:sembuh|bunuh|kanker|stroke|diabetes|tumor|covid|corona|racun)\b", re.I),
+    # Pseudosains & Medis Palsu
+    re.compile(r"\b(?:racun\s+kimia|racun\s+sianida|beras\s+plastik|telur\s+(?:palsu|plastik)|garam\s+kaca)\b", re.I),
+    re.compile(r"\bvaksina?.*\b(?:beracun|microchip|chip|5g|autis|kematian|mandul|lumpuh|darah\s+babi)\b", re.I),
+    re.compile(r"\b(?:air\s+rebusan|ramuan|bawang\s+putih|daun\s+sirsak|kelapa\s+hijau|jeruk\s+nipis|garam\s+kasar)\b.*\b(?:sembuh|bunuh|kanker|stroke|diabetes|tumor|covid|corona|racun)\b", re.I),
     re.compile(r"\b(?:sembuh(?:kan)?|matikan|bunuh|cegah)\s+(?:semua\s+)?(?:kanker|tumor|stroke|covid|corona|virus|diabetes|hiv|aids)\b", re.I),
-    re.compile(r"\b(?:darah\s+(?:langsung\s+)?membeku|serangan\s+jantung\s+mendadak)\b.*\b(?:minum\s+air\s+es|gorengan)\b", re.I),
-    re.compile(r"\bvaksina?.*\b(?:microchip|chip|5g|racun|pembunuh|mandul|lumpuh|darah\s+babi|magnet)\b", re.I),
-    re.compile(r"\b(?:meteran\s+listrik|token\s+pln)\b.*\b(?:sadap|chip\s+asing|mata-mata)\b", re.I),
-    re.compile(r"\bulat\s+beracun\b.*\b(?:mematikan|pohon\s+mangga|mati\s+dalam|jam)\b", re.I),
+    re.compile(r"\b(?:susu\s+beruang|air\s+kelapa)\b.*\b(?:netralisir|racun|paru-paru)\b", re.I),
 
-    # Isu Keuangan Palsu, Phishing & Bansos
-    re.compile(r"\b(?:uang\s+(?:pecahan\s+)?(?:100|50|75)\s*ribu\s+ditarik\s+bi|(?:ditarik|uang ditarik)\s+bi)\b", re.I),
-    re.compile(r"\b(?:pemutihan|hapus)\s+(?:seluruh\s+)?(?:hutang|utang)\s+pinjol\b", re.I),
-    re.compile(r"\b(?:uang\s+koin|koin\s+seribu|uang\s+kuno)\b.*\b(?:kelapa\s+sawit|melati|ratusan\s+juta|dibeli)\b", re.I),
-    re.compile(r"\b(?:surat\s+pengangkatan|penerimaan)\s+(?:pns|cpns|honorer)\b.*\b(?:tanpa\s+tes|bkn)\b", re.I),
+    # Bansos, Hadiah & Undian Phishing
     re.compile(r"\b(?:bagi-?bagi|bagikan|pembagian)\s+(?:bansos|blt|subsidi|saldo|uang|sepeda|mobil|pulsa|kuota|hadiah)\b", re.I),
     re.compile(r"\b(?:klaim|daftar|ambil)\s+(?:saldo|bantuan|bansos|kuota|dana\s+kaget|hadiah|voucher)\b", re.I),
+    re.compile(r"\b(?:uang\s+koin|koin\s+seribu|uang\s+kuno)\b.*\b(?:kelapa\s+sawit|melati|ratusan\s+juta|dibeli)\b", re.I),
+    re.compile(r"\b(?:uang\s+(?:pecahan\s+)?(?:100|50|75)\s*ribu\s+ditarik\s+bi|(?:ditarik|uang ditarik)\s+bi)\b", re.I),
+    re.compile(r"\b(?:penerimaan|pengangkatan)\s+(?:cpns|pns|bumn)\b.*\b(?:tanpa\s+tes)\b", re.I),
     re.compile(r"\b(?:t\.me|bit\.ly|s\.id|wa\.me)/[a-zA-Z0-9_-]+\b", re.I),
-    re.compile(r"\b(?:undian|pemenang)\s+(?:berhadiah|resmi)\b.*\b(?:alphard|uang\s+tunai|tanpa\s+diundi|hubungi\s+wa)\b", re.I),
 
     # Bencana & Kepanikan Palsu
-    re.compile(r"\b(?:megathrust|tsunami|gempa\s+dahsyat|topan\s+tornado)\b.*\b(?:malam\s+ini|dini\s+hari|jam\s+\d|tenggelamkan|keluar\s+rumah|ungsi|sapu\s+bersih)\b", re.I),
-    re.compile(r"\b(?:letusan|gunung\s+berapi)\b.*\b(?:gas\s+beracun\s+mematikan|ungsi\s+sekarang)\b", re.I),
+    re.compile(r"\b(?:megathrust|tsunami|gempa\s+dahsyat|topan\s+tornado)\b.*\b(?:malam\s+ini|dini\s+hari|jam\s+\d|tenggelamkan|keluar\s+rumah|sapu\s+bersih)\b", re.I),
+    re.compile(r"\b(?:gempa\s+(?:10|11|12|9\.\d)\s*(?:sr|skala\s+richter|magnitudo))\b", re.I),
     re.compile(r"\b(?:penculikan\s+anak|diculik)\b.*\b(?:mobil\s+(?:box\s+)?putih|organ\s+tubuh|badut)\b", re.I),
-
-    # Sensasionalisme & Desakan Forward WA
-    re.compile(r"\b(?:sebar(?:kan)?\s+sebelum\s+dihapus|info\s+a1\b|jangan\s+berhenti\s+di\s+(?:kamu|anda)|bagikan\s+ke\s+(?:semua\s+)?grup|viralkan\s+sekarang|jangan\s+mau\s+dibohongi\s+media)\b", re.I),
-    re.compile(r"\b(?:hoaks|hoax|berita\s+bohong|kabar\s+dusta|fitnah\s+keji)\b", re.I),
 ]
 
 FACT_INDICATOR_PATTERNS = [
-    # Pejabat & Aksi Pembangunan
+    # Pejabat & Aksi Pembangunan Jurnalistik
     re.compile(r"\b(?:presiden|menteri|kementerian|pemprov|pemkot|pemkab|gubernur|wali\s+kota|bupati)\b.*\b(?:meresmikan|meninjau|mengalokasikan|meluncurkan|menandatangani|melantik|membuka)\b", re.I),
     re.compile(r"\b(?:meresmikan|peresmian)\s+(?:jalan\s+tol|jembatan|bendungan|gedung|fasilitas|rumah\s+sakit|pelabuhan|bandara|puskesmas)\b", re.I),
     re.compile(r"\b(?:kementerian|kemenkes|kemendikbud|kemenkeu|kemlu|kemenag|pupr|pemprov|pemkot|pemkab|dinas)\b.*\b(?:meresmikan|membangun|menyelesaikan|meninjau|mengumumkan|mengalokasikan|meluncurkan)\b", re.I),
     
     # Penegakan Hukum & Kamtibmas
-    re.compile(r"\b(?:polda|polrestabes|polres|polri|satuan\s+narkoba|tim\s+resmob|aparat\s+kepolisian)\b.*\b(?:menangkap|membekuk|mengamankan|meringkus|menggagalkan|menyita|menertibkan)\b", re.I),
+    re.compile(r"\b(?:polda|polrestabes|polres|polri|satuan\s+narkoba|tim\s+resmob|aparat\s+kepolisian)\b.*\b(?:menangkap|membekuk|mengamankan|meringkus|menggagalkan|menyita\s+barang\s+bukti|menertibkan)\b", re.I),
     re.compile(r"\b(?:kejaksaan|pengadilan)\b.*\b(?:melimpahkan|menyidangkan|menuntut|memvonis|menetapkan\s+tersangka)\b", re.I),
     
     # Bencana & Cuaca Resmi
@@ -87,10 +83,23 @@ FACT_INDICATOR_PATTERNS = [
 ]
 
 NEGATIVE_INDICATOR_PATTERNS = [
-    re.compile(r"\b(?:serbu\s+dan\s+bakar|angkat\s+senjata|gulingkan\s+(?:penguasa|pemerintah)|amuk\s+massa|bom\s+molotov)\b", re.I),
-    re.compile(r"\b(?:usir|bantai|habisi)\s+(?:semua\s+)?(?:etnis|kaum|kelompok|minoritas|pendatang)\b", re.I),
-    re.compile(r"\b(?:sweeping\s+(?:malam|jalanan)|bawa\s+(?:sajam|celurit|golok)|tumpahkan\s+darah|perang\s+terbuka)\b", re.I),
-    re.compile(r"\b(?:rezim\s+bangsat|aparat\s+keparat|darah\s+kalian\s+halal|ratakan\s+dengan\s+tanah)\b", re.I),
+    # Kekerasan, Penyerangan, Pembakaran & Anarki
+    re.compile(r"\b(?:serbu|bakar|hancurkan|robohkan|rusak|jarah|bom|geruduk)\s+(?:dan\s+bakar|kantor|gedung|markas|posko|toko|rumah|fasilitas|polsek|polres|ibadah|masjid|gereja)\b", re.I),
+    re.compile(r"\b(?:bakar\s+rumah\s+ibadah|bakar\s+posko|bakar\s+kantor|bakar\s+gedung|bakar\s+fasilitas)\b", re.I),
+    re.compile(r"\b(?:bunuh|bantai|habisi|mati\s+kau|tumpahkan\s+darah|perang\s+terbuka|perang\s+suku|angkat\s+senjata|celurit|sajam)\b", re.I),
+    
+    # Umpatan, Makian & Hinaan Kasar
+    re.compile(r"\b(?:bajingan|bangsat|keparat|biadab|anjing|babi|kontol|bejat|tolol|goblok|laknat|iblis|setan)\b", re.I),
+    
+    # Ujaran Kebencian / SARA
+    re.compile(r"\b(?:antek\s+(?:pki|aseng|asing|komunis|yahudi|zionis)|pki\s+bangkit|komunis\s+bangkit)\b", re.I),
+    re.compile(r"\b(?:usir|ganyang)\s+.*(?:cina|chinese|etnis|pendatang|asing|kaum|mereka)\b", re.I),
+    re.compile(r"\b(?:kafir|sesat|munafik|syiah\s+sesat|wahabi\s+teroris)\b", re.I),
+    
+    # Provokasi Makar, Anarki & Penindasan
+    re.compile(r"\b(?:rezim\s+(?:bangsat|zalim|dholim|iblis|bobrok|firaun|penindas|korup)|pemerintah\s+(?:zalim|dholim|korup|bejat|tidak\s+becus)|aparat\s+(?:keparat|biadab|anjing))\b", re.I),
+    re.compile(r"\b(?:tidak\s+becus|gulingkan|turunkan\s+paksa|kudeta|revolusi\s+rakyat|amuk\s+massa|sweeping|penindas\s+rakyat)\b", re.I),
+    re.compile(r"\b(?:gantung\s+(?:semua\s+)?pejabat|hukum\s+mati\s+(?:presiden|menteri|pejabat))\b", re.I),
 ]
 
 
@@ -110,7 +119,11 @@ def load_model():
 def predict_threat(text: str) -> dict:
     """
     Memprediksi label ancaman (hoaks, fakta, negatif) dan probabilitas keyakinan.
-    Menggunakan pendekatan Hybrid: Model Statistik SGDClassifier + Knowledge Base CekFakta.
+    Menggunakan pendekatan Hybrid Threat Intelligence:
+    1. Priority 1: Ujaran kebencian / provokasi / kekerasan (NEGATIF)
+    2. Priority 2: Disinformasi / klaim bohong / konspirasi (HOAKS)
+    3. Priority 3: Rilis resmi / berita 5W1H (FAKTA)
+    4. Priority 4: Statistical SGDClassifier + Sentiment Polarity Filter
     """
     if not text or not text.strip():
         return {
@@ -133,34 +146,54 @@ def predict_threat(text: str) -> dict:
     prob_dict = {classes[i]: float(raw_probs[i]) for i in range(len(classes))}
 
     # 2. Pengecekan Pola Khusus (Knowledge Base Heuristics)
+    neg_match_count = sum(1 for pat in NEGATIVE_INDICATOR_PATTERNS if pat.search(raw_lower))
     hoax_match_count = sum(1 for pat in HOAX_INDICATOR_PATTERNS if pat.search(raw_lower))
     fact_match_count = sum(1 for pat in FACT_INDICATOR_PATTERNS if pat.search(raw_lower))
-    neg_match_count = sum(1 for pat in NEGATIVE_INDICATOR_PATTERNS if pat.search(raw_lower))
 
-    # Kalibrasi skor secara adaptif
-    if hoax_match_count > 0 and fact_match_count == 0:
-        boost = min(0.45 * hoax_match_count, 0.85)
-        prob_dict["hoaks"] += boost
-        prob_dict["fakta"] = max(0.01, prob_dict["fakta"] - (boost * 0.75))
-        prob_dict["negatif"] = max(0.01, prob_dict["negatif"] - (boost * 0.25))
-    elif fact_match_count > 0 and hoax_match_count == 0:
-        boost = min(0.40 * fact_match_count, 0.80)
-        prob_dict["fakta"] += boost
-        prob_dict["hoaks"] = max(0.01, prob_dict["hoaks"] - (boost * 0.75))
-        prob_dict["negatif"] = max(0.01, prob_dict["negatif"] - (boost * 0.25))
-    elif neg_match_count > 0:
-        boost = min(0.45 * neg_match_count, 0.85)
-        prob_dict["negatif"] += boost
-        prob_dict["fakta"] = max(0.01, prob_dict["fakta"] - (boost * 0.5))
-        prob_dict["hoaks"] = max(0.01, prob_dict["hoaks"] - (boost * 0.5))
-    elif hoax_match_count > 0 and fact_match_count > 0:
-        # Jika kedua pola cocok (misal: klarifikasi fakta hoaks)
-        if "klarifikasi" in raw_lower or "turnbackhoax" in raw_lower or "cekfakta" in raw_lower:
-            prob_dict["fakta"] += 0.35
-            prob_dict["hoaks"] = max(0.02, prob_dict["hoaks"] - 0.25)
+    # Cek apakah ini debunk resmi oleh media/lembaga CekFakta (misal: "Klarifikasi Mafindo:")
+    is_official_debunk = any(w in raw_lower for w in ["klarifikasi", "cek fakta", "cekfakta", "turnbackhoax"])
+
+    # ==============================================================
+    # HIERARKI PENILAIAN ANCAMAN (THREAT INTELLIGENCE PRIORITY)
+    # ==============================================================
+    if neg_match_count > 0:
+        # PRIORITAS TERTINGGI: Ancaman Provokasi / Kebencian / Anarki
+        base_prob = min(0.92 + (0.02 * neg_match_count), 0.99)
+        prob_dict["negatif"] = base_prob
+        prob_dict["hoaks"] = (1.0 - base_prob) * 0.6
+        prob_dict["fakta"] = (1.0 - base_prob) * 0.4
+
+    elif hoax_match_count > 0:
+        # PRIORITAS KEDUA: Disinformasi & Kabar Bohong
+        if is_official_debunk:
+            prob_dict["fakta"] = 0.94
+            prob_dict["hoaks"] = 0.04
+            prob_dict["negatif"] = 0.02
         else:
-            prob_dict["hoaks"] += 0.35
-            prob_dict["fakta"] = max(0.02, prob_dict["fakta"] - 0.25)
+            base_prob = min(0.92 + (0.02 * hoax_match_count), 0.99)
+            prob_dict["hoaks"] = base_prob
+            prob_dict["fakta"] = (1.0 - base_prob) * 0.4
+            prob_dict["negatif"] = (1.0 - base_prob) * 0.6
+
+    elif fact_match_count > 0:
+        # PRIORITAS KETIGA: Berita Resmi / Jurnalistik Terverifikasi
+        base_prob = min(0.92 + (0.02 * fact_match_count), 0.99)
+        prob_dict["fakta"] = base_prob
+        prob_dict["hoaks"] = (1.0 - base_prob) * 0.5
+        prob_dict["negatif"] = (1.0 - base_prob) * 0.5
+
+    else:
+        # PRIORITAS KEEMPAT: Teks Umum Tanpa Keyword Spesifik
+        # Analisis sentimen negatif umum untuk mencegah kalimat provokasi terselubung jadi "fakta"
+        negative_words = re.findall(
+            r"\b(?:korup|korupsi|bejat|rusak|rusuh|curang|bobrok|zalim|dholim|penipu|bohong|dusta|palsu|ribut|kacau|bentrok|hajar|serang|lawan|demo|kecewa|gagal|hancur|bahaya|mati|pembunuhan|teror|benci|ancam|biadab|anjing|bajingan|antek)\b",
+            raw_lower
+        )
+        if len(negative_words) > 0:
+            # Tekan probabilitas fakta jika terdapat kata-kata beracun/kritik keras
+            prob_dict["fakta"] = max(0.05, prob_dict["fakta"] - 0.45)
+            prob_dict["negatif"] += 0.35
+            prob_dict["hoaks"] += 0.10
 
     # Normalisasi probabilitas agar jumlah total = 1.0
     total = sum(prob_dict.values())
