@@ -27,15 +27,15 @@ from scripts.nlp.predict import predict_threat
 TEMPLATES = [
     # HOAKS
     ("hoaks", "Viral di grup WA warga {kota}: klaim bantuan bansos BLT 5 juta rupiah per KK cair hari ini, segera daftar nomor HP di tautan link t.me/bansos-gratis-{slug}!"),
-    ("hoaks", "Peringatan darurat orang dalam: gempa megathrust dahsyat magnitudo 9.5 akan menenggelamkan pesisir pantai {kota} malam ini jam 1 dini hari, segera keluar rumah!"),
-    ("hoaks", "Beredar pesan suara hoaks: air PDAM di kawasan {kota} sengaja dicampur serbuk racun mematikan oleh oknum tidak bertanggung jawab!"),
-    ("hoaks", "Hati-hati beredar beras plastik berbahan lem kimia beredar luas di pasar tradisional {kota}, jika dimasak teksturnya kenyal dan merusak lambung!"),
-    ("hoaks", "Jangan mau disuntik vaksin penguat terbaru di puskesmas {kota}! Ada microchip buatan asing yang sengaja ditanam untuk menyadap pikiran warga!"),
-    ("hoaks", "Waspada komplotan penculik anak menyamar naik mobil box putih berkeliaran di lingkungan SD wilayah {kota}, organ tubuh korban dijual ke pasar gelap!"),
-    ("hoaks", "Klaim dokter herbal palsu di {kota}: minum air rebusan pare campur garam kasar setiap malam membunuh sel kanker ganas dan stroke dalam 3 hari!"),
-    ("hoaks", "Bongkar rekaman rahasia: server penghitungan suara pilkada di {kota} telah diretas agen asing dan suara paslon dialihkan 100 persen!"),
-    ("hoaks", "Informasi A1: mulai besok seluruh SPBU Pertamina di wilayah {kota} ditutup total selama sebulan karena pasokan BBM langka!"),
-    ("hoaks", "Klaim palsu mengabarkan uang koin logam seribu rupiah kelapa sawit di {kota} dibeli bank sentral seharga seratus juta rupiah per keping!"),
+    ("hoaks", "Postingan viral Instagram akun warga {kota}: peringatan darurat gempa megathrust dahsyat magnitudo 9.5 akan menenggelamkan pesisir pantai {kota} malam ini jam 1 dini hari!"),
+    ("hoaks", "Tangkapan layar Instagram edaran palsu: air PDAM di kawasan {kota} sengaja dicampur serbuk racun mematikan oleh oknum tidak bertanggung jawab!"),
+    ("hoaks", "Feed Instagram viral warga {kota}: hati-hati beras plastik berbahan lem kimia beredar luas di pasar tradisional {kota}!"),
+    ("hoaks", "Video viral TikTok di {kota}: jangan mau disuntik vaksin penguat terbaru di puskesmas, ada microchip asing yang ditanam!"),
+    ("hoaks", "Konten TikTok FYP di {kota}: waspada komplotan penculik anak menyamar naik mobil box putih berkeliaran di lingkungan SD!"),
+    ("hoaks", "Beredar video TikTok viral di {kota}: minum air rebusan pare campur garam kasar setiap malam membunuh sel kanker ganas dan stroke dalam 3 hari!"),
+    ("hoaks", "Bongkar rekaman live TikTok: server penghitungan suara pilkada di {kota} telah diretas agen asing dan suara dialihkan 100 persen!"),
+    ("hoaks", "Beredar reels Instagram di {kota}: klaim uang koin logam seribu rupiah kelapa sawit dibeli bank sentral seharga seratus juta rupiah per keping!"),
+    ("hoaks", "Informasi viral TikTok di {kota}: mulai besok seluruh SPBU Pertamina ditutup total selama sebulan karena pasokan BBM langka!"),
 
     # FAKTA
     ("fakta", "Presiden meresmikan proyek jembatan layang dan jalan tol baru di kawasan {kota} guna memperlancar arus distribusi logistik antardaerah."),
@@ -137,14 +137,23 @@ def seed_national_threats():
                 if is_tayang:
                     tayang_count += 1
 
-                sumber = "berita" if label == "fakta" else ("twitter" if idx % 2 == 0 else "cek_mandiri")
                 clean_search = text[:60].replace('"', '').strip()
-                if label == 'hoaks':
-                    url = f"https://turnbackhoax.id/?s={urllib.parse.quote(clean_search)}"
-                elif sumber == 'twitter':
-                    url = f"https://twitter.com/search?q={urllib.parse.quote(clean_search)}&f=live"
-                else:
+                if label == "fakta":
+                    sumber = "berita"
                     url = f"https://news.google.com/search?q={urllib.parse.quote(clean_search)}&hl=id&gl=ID&ceid=ID:id"
+                else:
+                    # Distribusi realistis ke platform media sosial populer Indonesia
+                    soc_channels = ["tiktok", "twitter", "instagram", "tiktok", "twitter"]
+                    sumber = soc_channels[idx % len(soc_channels)]
+                    if label == 'hoaks':
+                        url = f"https://turnbackhoax.id/?s={urllib.parse.quote(clean_search)}"
+                    elif sumber == 'tiktok':
+                        url = f"https://www.tiktok.com/search?q={urllib.parse.quote(clean_search)}"
+                    elif sumber == 'instagram':
+                        first_tag = clean_search.split()[0].lower() if clean_search else "berita"
+                        url = f"https://www.instagram.com/explore/tags/{urllib.parse.quote(first_tag)}/"
+                    else:
+                        url = f"https://twitter.com/search?q={urllib.parse.quote(clean_search)}&f=live"
 
                 # Distribusikan tanggal dibuat_pada: separuh Kemarin (Nov 6) dan separuh Hari Ini (Nov 7)
                 days_offset = idx % 2
