@@ -43,28 +43,14 @@ function initMap() {
   // Zoom control di pojok kanan bawah
   L.control.zoom({ position: 'bottomright' }).addTo(AppState.map);
 
-  // Layer 1: CartoDB Positron (Peta Terang / Light Minimalist, Bebas Watermark & Tanpa API Key)
-  AppState.cartoLightTile = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 20
-  });
-
-  // Layer 2: OpenStreetMap Standard Light (Detail Jalan & Kontur Terang)
+  // Layer: OpenStreetMap Standard Light (OSM Light Eksklusif & Tunggal)
   AppState.osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19
   });
 
-  // Layer 3: ESRI World Light Gray Canvas (Kanvas Netral Terang)
-  AppState.esriLightTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    attribution: '&copy; Esri, DeLorme, NAVTEQ',
-    maxZoom: 16
-  });
-
-  // Pasang default: Peta Terang CartoDB Positron
-  AppState.cartoLightTile.addTo(AppState.map);
-  AppState.basemapMode = 'carto_light';
+  // Pasang OpenStreetMap Standard Light secara permanen
+  AppState.osmTile.addTo(AppState.map);
 
   // Inisialisasi Heat Layer
   AppState.heatLayer = L.heatLayer([], {
@@ -839,32 +825,6 @@ function initUIEvents() {
     if (AppState.map) AppState.map.invalidateSize();
   };
 
-  // Switcher Varian Peta Terang (Light Only)
-  const btnToggleBasemap = document.getElementById('btn-toggle-basemap');
-  const basemapText = document.getElementById('basemap-mode-text');
-
-  btnToggleBasemap.onclick = () => {
-    if (AppState.basemapMode === 'carto_light') {
-      // Pindah ke OSM Standard Light
-      AppState.map.removeLayer(AppState.cartoLightTile);
-      AppState.osmTile.addTo(AppState.map);
-      AppState.basemapMode = 'osm_light';
-      basemapText.innerText = 'OSM Light';
-    } else if (AppState.basemapMode === 'osm_light') {
-      // Pindah ke Esri World Light Canvas
-      AppState.map.removeLayer(AppState.osmTile);
-      AppState.esriLightTile.addTo(AppState.map);
-      AppState.basemapMode = 'esri_light';
-      basemapText.innerText = 'Esri Canvas';
-    } else {
-      // Kembali ke CartoDB Positron Light
-      AppState.map.removeLayer(AppState.esriLightTile);
-      AppState.cartoLightTile.addTo(AppState.map);
-      AppState.basemapMode = 'carto_light';
-      basemapText.innerText = 'Positron Light';
-    }
-    AppState.map.invalidateSize();
-  };
 
   // Layer Switcher: Markers vs Heatmap
   const btnMarkers = document.getElementById('layer-markers');
