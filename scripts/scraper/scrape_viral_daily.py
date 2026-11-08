@@ -298,6 +298,7 @@ def sync_viral_threats_to_db():
 
     inserted_count = 0
     updated_count = 0
+    newly_inserted_items = []
 
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -350,7 +351,8 @@ def sync_viral_threats_to_db():
                     INSERT INTO social_threats 
                     (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
                     VALUES 
-                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, TRUE, FALSE, %s);
+                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, TRUE, FALSE, %s)
+                    RETURNING id;
                 """
                 cur.execute(query, (
                     sumber_final,
@@ -363,6 +365,18 @@ def sync_viral_threats_to_db():
                     url,
                     published_at
                 ))
+                new_id = cur.fetchone()[0]
+                newly_inserted_items.append({
+                    "id": new_id,
+                    "sumber": sumber_final,
+                    "teks": text,
+                    "label": label,
+                    "probabilitas": prob,
+                    "geom": {"type": "Point", "coordinates": [lon, lat]},
+                    "lokasi_nama": lokasi_nama,
+                    "url": url,
+                    "dibuat_pada": published_at.isoformat() if hasattr(published_at, "isoformat") else str(published_at)
+                })
                 inserted_count += 1
 
             conn.commit()
@@ -389,7 +403,8 @@ def sync_viral_threats_to_db():
         "total_active_48h": stats[0],
         "hoaks": stats[1],
         "fakta": stats[2],
-        "negatif": stats[3]
+        "negatif": stats[3],
+        "new_items": newly_inserted_items
     }
     print(f"[✓] Sinkronisasi Selesai: +{inserted_count} baru, {updated_count} diperbarui. Total 48 Jam Aktif: {stats[0]}")
     return result

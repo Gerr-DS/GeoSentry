@@ -427,7 +427,6 @@ const SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'scrape_viral_d
 // Eksekusi scraper berita viral via Python
 function executeDailyViralIngest() {
   return new Promise((resolve, reject) => {
-    console.log('[+] Menjalankan penarikan berita viral harian (Google News, TurnBackHoax, Antara)...');
     execFile(PYTHON_EXEC, [SCRAPER_SCRIPT], { cwd: ROOT_DIR }, (error, stdout, stderr) => {
       if (error) {
         console.error('[!] Error eksekusi scraper berita viral:', stderr || error.message);
@@ -436,7 +435,32 @@ function executeDailyViralIngest() {
       try {
         const match = stdout.match(/\{[\s\S]*"status"[\s\S]*\}/);
         const parsed = match ? JSON.parse(match[0]) : { status: 'success', raw: stdout };
-        console.log('[✓] Ingest Berita Viral Selesai:', parsed);
+
+        // Jika ada berita viral baru yang ditarik, langsung siarkan ke peta secara realtime via WebSocket!
+        if (parsed.new_items && parsed.new_items.length > 0) {
+          console.log(`[⚡ Realtime Stream] Menyiarkan +${parsed.new_items.length} berita baru ke peta Leaflet...`);
+          for (const item of parsed.new_items) {
+            const feature = {
+              type: 'Feature',
+              id: item.id,
+              geometry: item.geom,
+              properties: {
+                id: item.id,
+                sumber: item.sumber,
+                teks: item.teks,
+                label: item.label,
+                probabilitas: item.probabilitas,
+                lokasi_nama: item.lokasi_nama,
+                url: item.url,
+                status_tayang: true,
+                dikoreksi: false,
+                dibuat_pada: item.dibuat_pada
+              }
+            };
+            io.emit('new_threat', feature);
+          }
+        }
+
         resolve(parsed);
       } catch (e) {
         resolve({ status: 'completed', output: stdout });
