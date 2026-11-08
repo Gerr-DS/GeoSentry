@@ -78,7 +78,7 @@ function rowToGeoJSONFeature(row) {
 // API ROUTES
 // ==========================================
 
-// 1. Ambil ancaman aktif (status_tayang = TRUE) format GeoJSON
+// 1. Ambil ancaman aktif (status_tayang = TRUE) format GeoJSON dalam jendela rolling 48 jam (Hari Ini & Kemarin)
 app.get('/api/threats', async (req, res) => {
   try {
     const query = `
@@ -87,7 +87,9 @@ app.get('/api/threats', async (req, res) => {
         ST_AsGeoJSON(geom) AS geojson, 
         lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada
       FROM social_threats
-      WHERE status_tayang = TRUE
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
       ORDER BY dibuat_pada DESC, id DESC;
     `;
     const result = await pool.query(query);
@@ -104,10 +106,10 @@ app.get('/api/threats', async (req, res) => {
   }
 });
 
-// 2. Statistik agregat dasbor
+// 2. Statistik agregat dasbor (Jendela 48 Jam: Hari Ini & Kemarin)
 app.get('/api/stats', async (req, res) => {
   try {
-    // Total aktif dan rincian label aktif
+    // Total aktif dan rincian label aktif dalam jendela 48 jam
     const activeStatsQuery = `
       SELECT 
         COUNT(*) AS total_active,
@@ -115,25 +117,32 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) FILTER (WHERE label = 'fakta') AS fakta,
         COUNT(*) FILTER (WHERE label = 'negatif') AS negatif,
         COUNT(*) FILTER (WHERE sumber = 'twitter') AS twitter,
-        COUNT(*) FILTER (WHERE sumber = 'berita') AS berita,
-        COUNT(*) FILTER (WHERE dikoreksi = TRUE) AS dikoreksi
+        COUNT(*) FILTER (WHERE sumber = 'berita' OR sumber = 'turnbackhoax') AS berita,
+        COUNT(*) FILTER (WHERE dikoreksi = TRUE) AS dikoreksi,
+        COUNT(*) FILTER (WHERE dibuat_pada >= CURRENT_DATE) AS hari_ini_count,
+        COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= CURRENT_DATE - INTERVAL '1 day') AS kemarin_count
       FROM social_threats
-      WHERE status_tayang = TRUE;
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day');
     `;
     const activeRes = await pool.query(activeStatsQuery);
     const active = activeRes.rows[0];
 
-    // Total di buffer keseluruhan
+    // Total di database keseluruhan
     const bufferCountRes = await pool.query('SELECT COUNT(*) AS total_buffer FROM social_threats;');
     const totalBuffer = parseInt(bufferCountRes.rows[0].total_buffer, 10);
 
-    // Top 5 lokasi persebaran aktif (dibersihkan dari prefix Nasional dan diekstrak nama kotanya)
+    // Top 5 lokasi persebaran aktif dalam jendela 48 jam
     const topRegionsQuery = `
       SELECT 
         split_part(lokasi_nama, ' (', 1) AS lokasi_nama, 
         COUNT(*) as count
       FROM social_threats
-      WHERE status_tayang = TRUE AND lokasi_nama NOT ILIKE 'Nasional%'
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND lokasi_nama NOT ILIKE 'Nasional%'
       GROUP BY split_part(lokasi_nama, ' (', 1)
       ORDER BY count DESC
       LIMIT 5;
@@ -146,6 +155,8 @@ app.get('/api/stats', async (req, res) => {
       hoaks: parseInt(active.hoaks || 0, 10),
       fakta: parseInt(active.fakta || 0, 10),
       negatif: parseInt(active.negatif || 0, 10),
+      hari_ini_count: parseInt(active.hari_ini_count || 0, 10),
+      kemarin_count: parseInt(active.kemarin_count || 0, 10),
       sumber: {
         twitter: parseInt(active.twitter || 0, 10),
         berita: parseInt(active.berita || 0, 10)
@@ -404,223 +415,119 @@ app.get('/api/cities', async (req, res) => {
 });
 
 // ==========================================
-// DYNAMIC REAL-TIME SIMULATOR (GENERATOR DATA LIVE)
+// DAILY VIRAL NEWS INGEST & 48-HOUR ROLLING ENGINE
 // ==========================================
 
-const SIMULATION_TEMPLATES = [
-  // HOAKS
-  {
-    label: 'hoaks',
-    sumber: 'twitter',
-    templates: [
-      "Viral pesan berantai di grup WA warga {kota}: klaim bantuan bansos BLT 5 juta rupiah per KK cair hari ini, segera daftar di link t.me/bansos-darurat-{slug}!",
-      "Peringatan darurat orang dalam: gempa megathrust dahsyat magnitudo 9.5 akan mengguncang pesisir {kota} malam ini jam 1 dini hari, segera evakuasi!",
-      "Beredar pesan suara hoaks: air PDAM di kawasan {kota} sengaja dicampur serbuk racun mematikan oleh oknum tidak bertanggung jawab!",
-      "Hati-hati beredar beras plastik berbahan sintetis lem kimia di pasar tradisional {kota}, teksturnya kenyal dan merusak organ pencernaan!",
-      "Jangan mau disuntik vaksin booster terbaru di puskesmas {kota}! Ada microchip buatan asing yang sengaja ditanam untuk menyadap pikiran warga!",
-      "Waspada komplotan penculik anak menyamar naik mobil box putih berkeliaran di lingkungan SD wilayah {kota}, organ tubuh korban dijual ke pasar gelap!",
-      "Klaim dokter herbal gadungan di {kota}: minum air rebusan pare campur garam kasar setiap malam membunuh sel kanker ganas dalam 3 hari!",
-      "Bongkar rekaman rahasia: server penghitungan suara di {kota} telah diretas agen asing dan suara dialihkan 100 persen tanpa jejak!",
-      "Informasi A1: mulai besok seluruh SPBU Pertamina di wilayah {kota} ditutup total selama sebulan karena pasokan BBM langka!",
-      "Klaim palsu mengabarkan uang koin logam seribu rupiah kelapa sawit di {kota} dibeli bank sentral seharga seratus juta rupiah per keping!",
-      "Beredar edaran palsu pengangkatan honorer menjadi PNS tanpa tes seleksi dari BKN di {kota} dengan membayar biaya seragam dua juta rupiah!",
-      "Ditemukan chip mata-mata asing di dalam meteran listrik token PLN di perumahan {kota}, alat ini merekam percakapan warga!"
-    ]
-  },
-  // FAKTA
-  {
-    label: 'fakta',
-    sumber: 'berita',
-    templates: [
-      "Presiden didampingi Menteri meresmikan proyek jembatan layang dan jalan tol baru di kawasan {kota} guna memperlancar arus distribusi logistik antardaerah.",
-      "BMKG Stasiun Geofisika merilis informasi gempa tektonik berkekuatan magnitudo 4.8 di perairan dekat {kota} dan memastikan tidak berpotensi tsunami.",
-      "Aparat Polrestabes {kota} berhasil membekuk sindikat komplotan pencurian kendaraan bermotor dan mengamankan belasan barang bukti.",
-      "Wali Kota {kota} meninjau langsung kesiapan sistem drainase kota dan stasiun pompa air untuk mengantisipasi potensi genangan banjir di musim hujan.",
-      "Dinas Kesehatan {kota} mengimbau seluruh masyarakat untuk melengkapi imunisasi dasar balita di puskesmas dan posyandu terdekat secara rutin.",
-      "Bank Indonesia perwakilan {kota} bersama Tim Pengendalian Inflasi Daerah menggelar operasi pasar murah beras dan minyak goreng curah.",
-      "Tim SAR gabungan berhasil menemukan dan mengevakuasi seluruh nelayan yang sempat hilang kontak akibat cuaca buruk di perairan {kota}.",
-      "Pemerintah Daerah {kota} meluncurkan program armada bus listrik gratis untuk rute koridor utama guna mengurangi tingkat polusi udara.",
-      "Badan Pusat Statistik mengumumkan laju pertumbuhan ekonomi wilayah {kota} tercatat tumbuh positif sebesar 5.12 persen pada triwulan ini.",
-      "Perum Bulog memastikan stok cadangan beras di gudang logistik {kota} dalam kondisi mencukupi untuk memenuhi kebutuhan masyarakat."
-    ]
-  },
-  // NEGATIF
-  {
-    label: 'negatif',
-    sumber: 'twitter',
-    templates: [
-      "Aparat keparat di {kota} malah membekingi penjahat! Ayo serbu dan bakar markas mereka malam ini juga, jangan beri mereka ampun!",
-      "Rezim bangsat! Saatnya rakyat di {kota} angkat senjata, bawa bom molotov dan gulingkan penguasa zalim ini sampai titik darah penghabisan!",
-      "Usir semua etnis pendatang parasit itu dari tanah {kota}! Bakar rumah dan hancurkan toko-toko mereka sampai rata dengan tanah!",
-      "Malam ini sweeping seluruh jalur protokol di {kota}, bawa celurit dan sajam, habisi siapa saja kelompok musuh yang berani lewat!",
-      "Kepung dan bakar kantor dinas di {kota} sekarang juga! Bikin kota ini lumpuh total oleh amuk massa malam ini!"
-    ]
-  }
-];
+const SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'scrape_viral_daily.py');
 
-// Kota-kota episentrum strategis yang bersaing di grafik Wilayah Terpanas
-const HOTSPOT_CITIES = [
-  'Jakarta Pusat', 'Jakarta Selatan', 'Surabaya', 'Bandung', 'Medan',
-  'Semarang', 'Makassar', 'Palembang', 'Denpasar', 'Balikpapan',
-  'Jayapura', 'Padang', 'Pekanbaru', 'Yogyakarta', 'Banjarmasin'
-];
+// Eksekusi scraper berita viral via Python
+function executeDailyViralIngest() {
+  return new Promise((resolve, reject) => {
+    console.log('[+] Menjalankan penarikan berita viral harian (Google News, TurnBackHoax, Antara)...');
+    execFile(PYTHON_EXEC, [SCRAPER_SCRIPT], { cwd: ROOT_DIR }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('[!] Error eksekusi scraper berita viral:', stderr || error.message);
+        return reject(error);
+      }
+      try {
+        const match = stdout.match(/\{[\s\S]*"status"[\s\S]*\}/);
+        const parsed = match ? JSON.parse(match[0]) : { status: 'success', raw: stdout };
+        console.log('[✓] Ingest Berita Viral Selesai:', parsed);
+        resolve(parsed);
+      } catch (e) {
+        resolve({ status: 'completed', output: stdout });
+      }
+    });
+  });
+}
 
-let simulatorTimer = null;
-let simulatorSpeed = 2500; // ms antar tayangan
-
-// Fungsi inti simulator: MENAMBAH DATA BARU KE DATABASE SECARA REAL-TIME
-async function executeSimulatorStep() {
+// 1. Endpoint Sinkronisasi Berita Viral Manual (On-Demand)
+app.post('/api/viral/sync', async (req, res) => {
   try {
-    // 1. Ambil kota acak (65% kemungkinan dari Hotspot Hub, 35% acak dari seluruh 500 kota)
-    let cityRes;
-    if (Math.random() < 0.65) {
-      const pickedHub = HOTSPOT_CITIES[Math.floor(Math.random() * HOTSPOT_CITIES.length)];
-      cityRes = await pool.query(
-        `SELECT nama, provinsi, lat, lon FROM gazetteer WHERE nama ILIKE $1 LIMIT 1;`,
-        [pickedHub.toLowerCase()]
-      );
-    } else {
-      cityRes = await pool.query(
-        `SELECT nama, provinsi, lat, lon FROM gazetteer ORDER BY RANDOM() LIMIT 1;`
-      );
-    }
+    const ingestResult = await executeDailyViralIngest();
+    
+    // Broadcast pembaruan ke seluruh klien via WebSocket
+    io.emit('viral_synced', {
+      timestamp: new Date().toISOString(),
+      result: ingestResult
+    });
 
-    if (cityRes.rows.length === 0) return null;
-    const city = cityRes.rows[0];
-    const kotaDisplay = city.nama.charAt(0).toUpperCase() + city.nama.slice(1);
-    const kotaSlug = city.nama.toLowerCase().replace(/\s+/g, '-');
-
-    // 2. Tentukan kategori berbobot (45% hoaks, 40% fakta, 15% negatif)
-    const rand = Math.random();
-    let categoryObj;
-    if (rand < 0.45) {
-      categoryObj = SIMULATION_TEMPLATES[0]; // hoaks
-    } else if (rand < 0.85) {
-      categoryObj = SIMULATION_TEMPLATES[1]; // fakta
-    } else {
-      categoryObj = SIMULATION_TEMPLATES[2]; // negatif
-    }
-
-    const tmpl = categoryObj.templates[Math.floor(Math.random() * categoryObj.templates.length)];
-    const text = tmpl.replace(/{kota}/g, kotaDisplay).replace(/{slug}/g, kotaSlug);
-    const label = categoryObj.label;
-    const prob = Number((0.85 + Math.random() * 0.13).toFixed(4));
-    const cleanSearch = text.slice(0, 60).replace(/["']/g, '').trim();
-    let url = '';
-    if (label === 'hoaks') {
-      url = `https://turnbackhoax.id/?s=${encodeURIComponent(cleanSearch)}`;
-    } else if (sumber === 'twitter') {
-      url = `https://twitter.com/search?q=${encodeURIComponent(cleanSearch)}&f=live`;
-    } else {
-      url = `https://news.google.com/search?q=${encodeURIComponent(cleanSearch)}&hl=id&gl=ID&ceid=ID:id`;
-    }
-    const lokasiNama = `${kotaDisplay} (${city.provinsi})`;
-
-    // 3. INSERT DATA BARU KE POSTGRESQL (BENAR-BENAR MENAMBAH RECORD BARU)
-    const insertQuery = `
-      INSERT INTO social_threats 
-      (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
-      VALUES 
-      ($1, $2, $3, $4, ST_SetSRID(ST_MakePoint($5, $6), 4326), $7, $8, TRUE, FALSE, NOW())
-      RETURNING 
-        id, sumber, teks, label, probabilitas, 
-        ST_AsGeoJSON(geom) AS geojson, 
-        lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada;
-    `;
-    const insertRes = await pool.query(insertQuery, [
-      sumber,
-      text,
-      label,
-      prob,
-      parseFloat(city.lon),
-      parseFloat(city.lat),
-      lokasiNama,
-      url
-    ]);
-
-    const feature = rowToGeoJSONFeature(insertRes.rows[0]);
-
-    // Broadcast ke seluruh klien Leaflet via WebSocket!
-    io.emit('new_threat', feature);
-    console.log(`[+] [Simulator Tambah Data] ID ${feature.id}: [${feature.properties.label.toUpperCase()}] di ${feature.properties.lokasi_nama}`);
-    return feature;
+    res.json({ success: true, message: 'Sinkronisasi berita viral harian berhasil', data: ingestResult });
   } catch (err) {
-    console.error('[!] Error simulator step:', err);
-    return null;
-  }
-}
-
-function startSimulator(speed = 2500) {
-  if (simulatorTimer) clearInterval(simulatorTimer);
-  simulatorSpeed = speed;
-  simulatorTimer = setInterval(executeSimulatorStep, simulatorSpeed);
-  io.emit('simulator_status', { isRunning: true, speed: simulatorSpeed });
-  console.log(`[✓] Generator Simulasi Data Live aktif (interval ${simulatorSpeed}ms)`);
-}
-
-function stopSimulator() {
-  if (simulatorTimer) {
-    clearInterval(simulatorTimer);
-    simulatorTimer = null;
-  }
-  io.emit('simulator_status', { isRunning: false });
-  console.log('[✓] Generator Simulasi Data Live dihentikan');
-}
-
-// Step manual 1 kali (menambah 1 data baru)
-app.post('/api/simulator/step', async (req, res) => {
-  const feature = await executeSimulatorStep();
-  if (feature) {
-    res.json({ success: true, feature });
-  } else {
-    res.status(500).json({ success: false, message: 'Gagal membuat data simulasi baru' });
+    res.status(500).json({ error: 'Gagal menjalankan sinkronisasi berita viral', details: err.message });
   }
 });
 
-// Mulai loop otomatis penambahan data
-app.post('/api/simulator/start', (req, res) => {
-  const speed = parseInt(req.body.speed, 10) || 2500;
-  startSimulator(speed);
-  res.json({ success: true, isRunning: true, speed });
-});
-
-// Hentikan loop otomatis penambahan data
-app.post('/api/simulator/stop', (req, res) => {
-  stopSimulator();
-  res.json({ success: true, isRunning: false });
-});
-
-// Reset simulasi: kembalikan ke baseline 120 data awal nasional
-app.post('/api/simulator/reset', async (req, res) => {
-  stopSimulator();
+// 2. Info Status Jendela Pemantauan 48 Jam
+app.get('/api/viral/info', async (req, res) => {
   try {
-    // Hapus data yang ditambahkan selama simulasi (ID > 260)
-    await pool.query('DELETE FROM social_threats WHERE id > 260;');
-    await pool.query('UPDATE social_threats SET status_tayang = TRUE, dikoreksi = FALSE WHERE id <= 120;');
-    io.emit('simulator_reset');
-    console.log('[✓] Simulasi di-reset ke baseline 120 data nasional');
-    res.json({ success: true, message: 'Data simulasi di-reset kembali ke baseline 120 titik nasional' });
-  } catch (err) {
-    console.error('[!] Error simulator reset:', err);
-    res.status(500).json({ error: 'Gagal mereset simulasi' });
-  }
-});
+    const today = new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric' });
+    const yesterdayDate = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const yesterday = yesterdayDate.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric' });
 
-// Status simulator
-app.get('/api/simulator/status', async (req, res) => {
-  try {
-    const totalRes = await pool.query('SELECT COUNT(*) AS total FROM social_threats;');
-    const activeRes = await pool.query('SELECT COUNT(*) AS active FROM social_threats WHERE status_tayang = TRUE;');
+    // Hitung waktu mundur hingga 00:00 WIB berikutnya
+    const nowWIB = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jakarta' }));
+    const nextMidnightWIB = new Date(nowWIB);
+    nextMidnightWIB.setHours(24, 0, 0, 0);
+    const msUntilMidnight = nextMidnightWIB.getTime() - nowWIB.getTime();
+
+    const activeCountRes = await pool.query(`
+      SELECT 
+        COUNT(*) AS total_active_48h,
+        COUNT(*) FILTER (WHERE dibuat_pada >= CURRENT_DATE) AS count_today,
+        COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= CURRENT_DATE - INTERVAL '1 day') AS count_yesterday
+      FROM social_threats 
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day');
+    `);
+
     res.json({
-      isRunning: Boolean(simulatorTimer),
-      speed: simulatorSpeed,
-      total_data: parseInt(totalRes.rows[0].total, 10),
-      active_count: parseInt(activeRes.rows[0].active, 10)
+      window_range: `Jendela 48 Jam: Kemarin (${yesterday}) & Hari Ini (${today})`,
+      hari_ini: today,
+      kemarin: yesterday,
+      next_rollover: 'Pukul 00:00 WIB',
+      seconds_until_rollover: Math.floor(msUntilMidnight / 1000),
+      stats: activeCountRes.rows[0]
     });
   } catch (err) {
-    res.status(500).json({ error: 'Gagal mengecek status simulator' });
+    res.status(500).json({ error: 'Gagal mengambil info jendela berita viral' });
   }
 });
+
+// ==========================================
+// AUTOMATIC MIDNIGHT ROLLOVER SCHEDULER (00:00 WIB)
+// ==========================================
+// Mendeteksi pergantian tanggal otomatis pada pukul 00:00 WIB,
+// memajukan jendela pantau 48 jam, dan otomatis mengambil berita viral baru.
+
+let currentWIBDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
+
+setInterval(async () => {
+  const checkDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  if (checkDate !== currentWIBDate) {
+    console.log(`\n[🔔] ======================================================`);
+    console.log(`[🔔] PUKUL 00:00 WIB TERCAPAI: Pergantian Hari Terdeteksi!`);
+    console.log(`[🔔] Tanggal Baru : ${checkDate} (Sebelumnya: ${currentWIBDate})`);
+    console.log(`[🔔] Menjalankan Rollover Jendela 48 Jam & Sinkronisasi Berita...`);
+    console.log(`[🔔] ======================================================\n`);
+    
+    currentWIBDate = checkDate;
+
+    try {
+      // 1. Jalankan penarikan berita viral harian untuk hari baru
+      await executeDailyViralIngest();
+
+      // 2. Siarkan pergantian tanggal ke semua klien aktif agar UI & peta langsung terbarui
+      io.emit('day_rollover', {
+        new_date: checkDate,
+        message: 'Pukul 00:00 WIB tercapai: Jendela pemantauan otomatis bergeser ke hari ini dan kemarin.'
+      });
+    } catch (e) {
+      console.error('[!] Gagal menjalankan ingest otomatis tengah malam:', e);
+    }
+  }
+}, 30000); // Evaluasi setiap 30 detik
 
 // ==========================================
 // WEBSOCKETS SETUP
@@ -629,8 +536,11 @@ app.get('/api/simulator/status', async (req, res) => {
 io.on('connection', (socket) => {
   console.log(`[+] Klien WebSocket terhubung: ${socket.id}`);
 
-  // Kirim status simulator saat klien baru tersambung
-  socket.emit('simulator_status', { isRunning: Boolean(simulatorTimer), speed: simulatorSpeed });
+  // Kirim info status jendela berita viral saat klien baru tersambung
+  socket.emit('viral_engine_ready', {
+    message: 'Mesin Pemantauan Berita Viral 48 Jam Aktif',
+    rollover_schedule: 'Setiap 00:00 WIB'
+  });
 
   socket.on('disconnect', () => {
     console.log(`[-] Klien WebSocket terputus: ${socket.id}`);

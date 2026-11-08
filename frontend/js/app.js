@@ -22,7 +22,6 @@ const AppState = {
   chartCategory: null,
   chartRegions: null,
   socket: null,
-  isSimulating: false,
   lastAnalysis: null
 };
 
@@ -355,11 +354,19 @@ function initCharts() {
 }
 
 function updateChartsAndStats(stats) {
-  document.getElementById('stat-total').innerText = stats.total_active || 0;
+  const totalActive = stats.total_active || 0;
+  document.getElementById('stat-total').innerText = totalActive;
   document.getElementById('stat-hoaks').innerText = stats.hoaks || 0;
   document.getElementById('stat-fakta').innerText = stats.fakta || 0;
   document.getElementById('stat-negatif').innerText = stats.negatif || 0;
-  document.getElementById('buffer-remaining').innerText = stats.total_active || 0;
+
+  const viralActiveEl = document.getElementById('viral-active-count');
+  if (viralActiveEl) viralActiveEl.innerText = totalActive;
+
+  const rangeEl = document.getElementById('window-range-text');
+  if (rangeEl && (stats.hari_ini_count !== undefined || stats.kemarin_count !== undefined)) {
+    rangeEl.innerText = `Hari Ini (${stats.hari_ini_count || 0}) & Kemarin (${stats.kemarin_count || 0})`;
+  }
 
   if (AppState.chartCategory) {
     AppState.chartCategory.data.datasets[0].data = [
@@ -677,9 +684,7 @@ function initWebSocket() {
   });
 
   AppState.socket.on('new_threat', (feature) => {
-    // Jika sedang streaming simulasi otomatis, jangan paksa kamera melompat (autoFly=false)
-    // agar tampilan peta tetap stabil saat data baru terus bermunculan di seluruh Indonesia.
-    const autoFly = !AppState.isSimulating && feature.properties.sumber === 'cek_mandiri';
+    const autoFly = feature.properties.sumber === 'cek_mandiri';
     addThreatToMap(feature, autoFly);
     fetchStats();
   });
@@ -690,7 +695,18 @@ function initWebSocket() {
     fetchStats();
   });
 
-  AppState.socket.on('simulator_reset', () => {
+  // Event saat sinkronisasi berita viral harian selesai
+  AppState.socket.on('viral_synced', (data) => {
+    console.log('[+] Berita viral baru tersinkronkan:', data);
+    fetchInitialThreats();
+    fetchStats();
+    showToast(`Berita viral harian disinkronkan (+${data.result?.inserted || 0} baru).`);
+  });
+
+  // Event saat pergantian hari (00:00 WIB Rollover)
+  AppState.socket.on('day_rollover', (data) => {
+    console.log('[🔔] Pukul 00:00 WIB: Rollover jendela 48 jam:', data);
+    // Bersihkan marker lama
     AppState.threats.clear();
     AppState.markers.forEach(m => AppState.map.removeLayer(m));
     AppState.markers.clear();
@@ -698,21 +714,11 @@ function initWebSocket() {
     renderFeedList();
     fetchInitialThreats();
     fetchStats();
+    showToast(data.message || 'Pukul 00:00 WIB: Jendela pemantauan bergeser ke hari ini dan kemarin.');
   });
 
-  AppState.socket.on('simulator_status', (status) => {
-    AppState.isSimulating = status.isRunning;
-    const badge = document.getElementById('sim-badge');
-    const toggleBtn = document.getElementById('sim-toggle-text');
-    if (status.isRunning) {
-      badge.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-400 uppercase border border-emerald-800 animate-pulse';
-      badge.innerText = 'Menambah Data Live';
-      if (toggleBtn) toggleBtn.innerText = 'Jeda Tambah Data';
-    } else {
-      badge.className = 'px-1.5 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-400 uppercase';
-      badge.innerText = 'Siaga';
-      if (toggleBtn) toggleBtn.innerText = 'Mulai Tambah Data';
-    }
+  AppState.socket.on('viral_engine_ready', (info) => {
+    console.log('[✓]', info.message, info.rollover_schedule);
   });
 }
 
@@ -860,26 +866,73 @@ function initUIEvents() {
     AppState.heatLayer.addTo(AppState.map);
   };
 
-  // Simulator Controls
-  document.getElementById('btn-sim-toggle').onclick = async () => {
-    const speed = parseInt(document.getElementById('sim-speed').value, 10);
-    const endpoint = AppState.isSimulating ? '/api/simulator/stop' : '/api/simulator/start';
-    await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ speed })
-    });
-  };
-
-  document.getElementById('btn-sim-step').onclick = async () => {
-    await fetch('/api/simulator/step', { method: 'POST' });
-  };
-
-  document.getElementById('btn-sim-reset').onclick = async () => {
-    if (confirm('Reset seluruh buffer tayang ke kondisi awal (0 tayang)?')) {
-      await fetch('/api/simulator/reset', { method: 'POST' });
+  // Toast Notification System
+  function showToast(message, isError = false) {
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+      toastContainer = document.createElement('div');
+      toastContainer.id = 'toast-container';
+      toastContainer.className = 'fixed top-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none';
+      document.body.appendChild(toastContainer);
     }
-  };
+
+    const toast = document.createElement('div');
+    toast.className = `px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center space-x-2 border transition-all duration-300 transform translate-y-[-10px] opacity-0 pointer-events-auto ${
+      isError 
+        ? 'bg-red-950/90 text-red-200 border-red-800' 
+        : 'bg-slate-900/95 text-cyan-200 border-cyan-500/50'
+    }`;
+    toast.innerHTML = `
+      <span class="w-2 h-2 rounded-full ${isError ? 'bg-red-400' : 'bg-cyan-400 animate-ping'}"></span>
+      <span>${message}</span>
+    `;
+
+    toastContainer.appendChild(toast);
+    requestAnimationFrame(() => {
+      toast.classList.remove('translate-y-[-10px]', 'opacity-0');
+    });
+
+    setTimeout(() => {
+      toast.classList.add('opacity-0', 'translate-y-[-10px]');
+      setTimeout(() => toast.remove(), 300);
+    }, 4500);
+  }
+
+  // Sinkronisasi Berita Viral Harian (Tombol Radar Berita Viral)
+  const btnSyncViral = document.getElementById('btn-sync-viral');
+  if (btnSyncViral) {
+    btnSyncViral.onclick = async () => {
+      const syncIcon = document.getElementById('btn-sync-icon');
+      const syncText = document.getElementById('btn-sync-text');
+
+      btnSyncViral.disabled = true;
+      if (syncIcon) syncIcon.classList.add('animate-spin');
+      if (syncText) syncText.innerText = 'Menyinkronkan...';
+
+      try {
+        const res = await fetch('/api/viral/sync', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Sinkronisasi selesai! Berita viral hari ini (${data.data?.fetched || 0} artikel) berhasil divalidasi.`);
+          AppState.threats.clear();
+          AppState.markers.forEach(m => AppState.map.removeLayer(m));
+          AppState.markers.clear();
+          updateHeatmapData();
+          renderFeedList();
+          await fetchInitialThreats();
+          await fetchStats();
+        } else {
+          showToast(`Gagal sinkronisasi: ${data.error || 'Server error'}`, true);
+        }
+      } catch (err) {
+        showToast('Koneksi sinkronisasi gagal.', true);
+      } finally {
+        btnSyncViral.disabled = false;
+        if (syncIcon) syncIcon.classList.remove('animate-spin');
+        if (syncText) syncText.innerText = 'Sinkronkan Hari Ini';
+      }
+    };
+  }
 
   // MODAL CEK BERITA MANDIRI
   const modalChecker = document.getElementById('modal-checker');

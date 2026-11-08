@@ -21,7 +21,8 @@ _MODEL_BUNDLE = None
 # KNOWLEDGE BASE INDIKATOR DISINFORMASI (TurnBackHoax / CekFakta)
 # ==============================================================
 HOAX_INDICATOR_PATTERNS = [
-    # Explicit hoax labels & forwards
+    # Explicit hoax labels & forwards & TurnBackHoax debunking tags
+    re.compile(r"\[(?:salah|disinformasi|manipulasi|penipuan|misinformasi|hoaks|hoax|palsu|fitnah)\]", re.I),
     re.compile(r"\b(?:hoaks|hoax|berita\s+bohong|kabar\s+dusta|kabar\s+burung|fitnah\s+keji|pesan\s+berantai|klaim\s+palsu)\b", re.I),
     re.compile(r"\b(?:sebar(?:kan)?\s+sebelum\s+dihapus|info\s+a1\b|jangan\s+berhenti\s+di\s+(?:kamu|anda)|bagikan\s+ke\s+(?:semua\s+)?grup|viralkan\s+sekarang|jangan\s+mau\s+dibohongi\s+media)\b", re.I),
     

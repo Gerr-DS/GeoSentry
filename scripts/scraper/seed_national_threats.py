@@ -146,11 +146,17 @@ def seed_national_threats():
                 else:
                     url = f"https://news.google.com/search?q={urllib.parse.quote(clean_search)}&hl=id&gl=ID&ceid=ID:id"
 
+                # Distribusikan tanggal dibuat_pada: separuh Kemarin (Nov 6) dan separuh Hari Ini (Nov 7)
+                days_offset = idx % 2
+                hour_offset = (idx * 3) % 24
+                minute_offset = (idx * 17) % 60
+
                 query = """
                     INSERT INTO social_threats 
-                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi)
+                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
                     VALUES 
-                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s, FALSE);
+                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, TRUE, FALSE, 
+                     CURRENT_DATE - (%s || ' days')::interval + (%s || ' hours')::interval + (%s || ' minutes')::interval);
                 """
                 cur.execute(query, (
                     sumber,
@@ -161,7 +167,9 @@ def seed_national_threats():
                     lat,
                     f"{kota_display} ({prov})",
                     url,
-                    is_tayang
+                    days_offset,
+                    hour_offset,
+                    minute_offset
                 ))
                 total_created += 1
 
