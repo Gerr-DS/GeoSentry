@@ -43,20 +43,28 @@ function initMap() {
   // Zoom control di pojok kanan bawah
   L.control.zoom({ position: 'bottomright' }).addTo(AppState.map);
 
-  // Layer 1: ESRI World Dark Gray Canvas (Resmi, 100% Bebas API Key, Tanpa Watermark)
-  AppState.esriDarkTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
-    attribution: '&copy; Esri, DeLorme, NAVTEQ',
-    maxZoom: 16
+  // Layer 1: CartoDB Positron (Peta Terang / Light Minimalist, Bebas Watermark & Tanpa API Key)
+  AppState.cartoLightTile = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 20
   });
 
-  // Layer 2: OpenStreetMap Standard (100% Free Open Data)
+  // Layer 2: OpenStreetMap Standard Light (Detail Jalan & Kontur Terang)
   AppState.osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
     maxZoom: 19
   });
 
-  // Pasang default ESRI Dark Canvas (Bersih dari tulisan 'API KEY REQUIRED')
-  AppState.esriDarkTile.addTo(AppState.map);
+  // Layer 3: ESRI World Light Gray Canvas (Kanvas Netral Terang)
+  AppState.esriLightTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri, DeLorme, NAVTEQ',
+    maxZoom: 16
+  });
+
+  // Pasang default: Peta Terang CartoDB Positron
+  AppState.cartoLightTile.addTo(AppState.map);
+  AppState.basemapMode = 'carto_light';
 
   // Inisialisasi Heat Layer
   AppState.heatLayer = L.heatLayer([], {
@@ -114,6 +122,11 @@ function getRelatedNewsUrl(props) {
 
   if (props.label === 'hoaks') {
     return `https://turnbackhoax.id/?s=${encodeURIComponent(cleanQuery)}`;
+  } else if (props.sumber === 'tiktok') {
+    return `https://www.tiktok.com/search?q=${encodeURIComponent(cleanQuery)}`;
+  } else if (props.sumber === 'instagram') {
+    const firstTag = cleanQuery.split(/\s+/)[0] || 'berita';
+    return `https://www.instagram.com/explore/tags/${encodeURIComponent(firstTag)}/`;
   } else if (props.sumber === 'twitter') {
     return `https://twitter.com/search?q=${encodeURIComponent(cleanQuery)}&f=live`;
   } else {
@@ -131,6 +144,8 @@ function createPopupContent(props) {
 
   let sumberLabel = '📰 Berita';
   if (props.sumber === 'twitter') sumberLabel = '🐦 Twitter';
+  else if (props.sumber === 'tiktok') sumberLabel = '📱 TikTok';
+  else if (props.sumber === 'instagram') sumberLabel = '📸 Instagram';
   else if (props.sumber === 'cek_mandiri') sumberLabel = '✨ Cek Mandiri';
 
   const newsUrl = getRelatedNewsUrl(props);
@@ -139,6 +154,12 @@ function createPopupContent(props) {
   if (props.label === 'hoaks') {
     linkIcon = 'shield-alert';
     linkTitle = 'Cek Fakta di TurnBackHoax';
+  } else if (props.sumber === 'tiktok') {
+    linkIcon = 'video';
+    linkTitle = 'Lihat Isu di TikTok';
+  } else if (props.sumber === 'instagram') {
+    linkIcon = 'camera';
+    linkTitle = 'Lihat Post di Instagram';
   } else if (props.sumber === 'twitter') {
     linkIcon = 'message-circle';
     linkTitle = 'Lihat di Twitter / X';
@@ -410,10 +431,16 @@ function prependThreatToFeed(props, isNew = false) {
 
   let sumberIcon = '📰 Berita';
   if (props.sumber === 'twitter') sumberIcon = '🐦 Twitter';
+  else if (props.sumber === 'tiktok') sumberIcon = '📱 TikTok';
+  else if (props.sumber === 'instagram') sumberIcon = '📸 Instagram';
   else if (props.sumber === 'cek_mandiri') sumberIcon = '✨ Cek Mandiri';
 
   const newsUrl = getRelatedNewsUrl(props);
-  const linkBadgeText = props.label === 'hoaks' ? 'Cek Fakta' : (props.sumber === 'twitter' ? 'Twitter' : 'Berita');
+  let linkBadgeText = 'Berita';
+  if (props.label === 'hoaks') linkBadgeText = 'Cek Fakta';
+  else if (props.sumber === 'tiktok') linkBadgeText = 'TikTok';
+  else if (props.sumber === 'instagram') linkBadgeText = 'Instagram';
+  else if (props.sumber === 'twitter') linkBadgeText = 'Twitter';
 
   div.innerHTML = `
     <div class="flex items-center justify-between mb-1">
@@ -812,31 +839,29 @@ function initUIEvents() {
     if (AppState.map) AppState.map.invalidateSize();
   };
 
-  // Switcher Basemap Bebas API Key
+  // Switcher Varian Peta Terang (Light Only)
   const btnToggleBasemap = document.getElementById('btn-toggle-basemap');
   const basemapText = document.getElementById('basemap-mode-text');
-  const mapEl = document.getElementById('map');
 
   btnToggleBasemap.onclick = () => {
-    if (AppState.basemapMode === 'esri') {
-      // Pindah ke OSM Dark Filter (bebas API key, filter gelap CSS)
-      AppState.map.removeLayer(AppState.esriDarkTile);
-      AppState.osmTile.addTo(AppState.map);
-      mapEl.classList.add('osm-dark-tiles');
-      AppState.basemapMode = 'osm_dark';
-      basemapText.innerText = 'OSM Dark';
-    } else if (AppState.basemapMode === 'osm_dark') {
+    if (AppState.basemapMode === 'carto_light') {
       // Pindah ke OSM Standard Light
-      mapEl.classList.remove('osm-dark-tiles');
+      AppState.map.removeLayer(AppState.cartoLightTile);
+      AppState.osmTile.addTo(AppState.map);
       AppState.basemapMode = 'osm_light';
       basemapText.innerText = 'OSM Light';
-    } else {
-      // Kembali ke ESRI World Dark Canvas
+    } else if (AppState.basemapMode === 'osm_light') {
+      // Pindah ke Esri World Light Canvas
       AppState.map.removeLayer(AppState.osmTile);
-      AppState.esriDarkTile.addTo(AppState.map);
-      mapEl.classList.remove('osm-dark-tiles');
-      AppState.basemapMode = 'esri';
-      basemapText.innerText = 'Dark Ops';
+      AppState.esriLightTile.addTo(AppState.map);
+      AppState.basemapMode = 'esri_light';
+      basemapText.innerText = 'Esri Canvas';
+    } else {
+      // Kembali ke CartoDB Positron Light
+      AppState.map.removeLayer(AppState.esriLightTile);
+      AppState.cartoLightTile.addTo(AppState.map);
+      AppState.basemapMode = 'carto_light';
+      basemapText.innerText = 'Positron Light';
     }
     AppState.map.invalidateSize();
   };

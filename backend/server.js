@@ -117,6 +117,8 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) FILTER (WHERE label = 'fakta') AS fakta,
         COUNT(*) FILTER (WHERE label = 'negatif') AS negatif,
         COUNT(*) FILTER (WHERE sumber = 'twitter') AS twitter,
+        COUNT(*) FILTER (WHERE sumber = 'tiktok') AS tiktok,
+        COUNT(*) FILTER (WHERE sumber = 'instagram') AS instagram,
         COUNT(*) FILTER (WHERE sumber = 'berita' OR sumber = 'turnbackhoax') AS berita,
         COUNT(*) FILTER (WHERE dikoreksi = TRUE) AS dikoreksi,
         COUNT(*) FILTER (WHERE dibuat_pada >= CURRENT_DATE) AS hari_ini_count,
@@ -159,6 +161,8 @@ app.get('/api/stats', async (req, res) => {
       kemarin_count: parseInt(active.kemarin_count || 0, 10),
       sumber: {
         twitter: parseInt(active.twitter || 0, 10),
+        tiktok: parseInt(active.tiktok || 0, 10),
+        instagram: parseInt(active.instagram || 0, 10),
         berita: parseInt(active.berita || 0, 10)
       },
       dikoreksi: parseInt(active.dikoreksi || 0, 10),

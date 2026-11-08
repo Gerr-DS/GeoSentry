@@ -111,6 +111,24 @@ FALLBACK_VIRAL_DATA = [
         "lat": 3.5952, "lon": 98.6722
     },
     {
+        "judul": "[SALAH] Video Viral TikTok: Klaim Dana Bansos PKH 10 Juta Cair Hari Ini di Makassar",
+        "isi": "Beredar konten video viral di aplikasi TikTok menarasikan pembagian uang tunai 10 juta tanpa syarat bagi warga Makassar. Kemensos memastikan video tersebut hoaks rekayasa AI.",
+        "url": "https://www.tiktok.com/search?q=klaim+bansos+pkh+makassar",
+        "sumber": "tiktok",
+        "days_ago": 0,
+        "kota": "Makassar (Sulawesi Selatan)",
+        "lat": -5.1477, "lon": 119.4327
+    },
+    {
+        "judul": "[SALAH] Postingan Viral Instagram: Air Mineral Tercemar Racun Mematikan di Denpasar",
+        "isi": "Sebuah feed postingan Instagram menyebarkan tangkapan layar klaim air mineral kemasan beracun di Bali. BPOM Denpasar mengonfirmasi kabar itu adalah hoaks dan fitnah.",
+        "url": "https://www.instagram.com/explore/tags/klarifikasibpom/",
+        "sumber": "instagram",
+        "days_ago": 0,
+        "kota": "Denpasar (Bali)",
+        "lat": -8.6705, "lon": 115.2126
+    },
+    {
         "judul": "Bank Indonesia Perluas Jaringan QRIS Lintas Negara ke Kawasan Asia Timur di Denpasar",
         "isi": "Gubernur Bank Indonesia resmi meluncurkan uji coba transaksi QRIS antarnegara di Denpasar Bali untuk memfasilitasi kemudahan transaksi bagi pelaku pariwisata.",
         "url": "https://bi.go.id/berita/qris-bali",
@@ -302,12 +320,22 @@ def sync_viral_threats_to_db():
                     updated_count += 1
                     continue
 
-                # 2. Klasifikasi AI (Hybrid NLP SGD + TurnBackHoax Knowledge Base)
+                # 2. Deteksi media sosial asal (TikTok, Instagram, Twitter) jika artikel membahas postingan medsos
+                sumber_final = art["sumber"]
+                lower_txt = text.lower()
+                if "tiktok" in lower_txt:
+                    sumber_final = "tiktok"
+                elif "instagram" in lower_txt or "postingan ig" in lower_txt or "akun ig" in lower_txt:
+                    sumber_final = "instagram"
+                elif "twitter" in lower_txt or "akun x" in lower_txt or "cuitan" in lower_txt:
+                    sumber_final = "twitter"
+
+                # 3. Klasifikasi AI (Hybrid NLP SGD + TurnBackHoax Knowledge Base)
                 pred = predict_threat(text)
                 label = pred["label"]
                 prob = pred["probabilitas"]
 
-                # 3. Geocoding Lokasi Spasial
+                # 4. Geocoding Lokasi Spasial
                 if "forced_loc" in art:
                     loc = art["forced_loc"]
                 else:
@@ -317,7 +345,7 @@ def sync_viral_threats_to_db():
                 lat = loc["lat"]
                 lon = loc["lon"]
 
-                # 4. Simpan ke Database PostgreSQL PostGIS
+                # 5. Simpan ke Database PostgreSQL PostGIS
                 query = """
                     INSERT INTO social_threats 
                     (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
@@ -325,7 +353,7 @@ def sync_viral_threats_to_db():
                     (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, TRUE, FALSE, %s);
                 """
                 cur.execute(query, (
-                    art["sumber"],
+                    sumber_final,
                     text,
                     label,
                     prob,
