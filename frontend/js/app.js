@@ -120,6 +120,88 @@ function getRelatedNewsUrl(props) {
   }
 }
 
+// Helper: Dapatkan icon Lucide berdasarkan sumber
+function getLinkIconBySource(sumber) {
+  if (sumber === 'twitter') return 'message-circle';
+  if (sumber === 'tiktok') return 'video';
+  if (sumber === 'instagram') return 'camera';
+  if (sumber === 'turnbackhoax') return 'shield-alert';
+  return 'newspaper';
+}
+
+// Helper: Kumpulkan SEMUA tautan rujukan untuk berita ini dan berita sejenis/serupa
+function getAllReferenceLinks(props) {
+  const links = [];
+  const seenUrls = new Set();
+
+  function add(url, title, icon, badge) {
+    if (!url || seenUrls.has(url) || url.includes('geosentry.id')) return;
+    seenUrls.add(url);
+    links.push({ url, title, icon, badge });
+  }
+
+  // 1. Tautan rujukan eksplisit dari kolom referensi_urls
+  if (props.referensi_urls) {
+    let refs = props.referensi_urls;
+    if (typeof refs === 'string') {
+      try { refs = JSON.parse(refs); } catch(e) { refs = []; }
+    }
+    if (Array.isArray(refs)) {
+      refs.forEach(r => {
+        if (typeof r === 'string' && r.startsWith('http')) {
+          add(r, 'Rujukan Terkait', 'external-link', 'RUJUKAN');
+        } else if (r && r.url) {
+          add(r.url, r.judul || 'Rujukan Sumber', getLinkIconBySource(r.sumber), (r.sumber || 'berita').toUpperCase());
+        }
+      });
+    }
+  }
+
+  // 2. Tautan utama props.url
+  if (props.url && (props.url.startsWith('http://') || props.url.startsWith('https://')) && !props.url.includes('geosentry.id')) {
+    let badgeName = (props.sumber || 'BERITA').toUpperCase();
+    let iconName = getLinkIconBySource(props.sumber);
+    add(props.url, 'Laporan & Sumber Asli', iconName, badgeName);
+  }
+
+  // 3. Cari berita yang SAMA atau SERUPA dari database aktif di peta (Cross-Reference Grouping)
+  if (props.teks && typeof AppState !== 'undefined' && AppState.threats) {
+    const rawWords = props.teks.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 4 && !['viral', 'beredar', 'adalah', 'dengan', 'untuk', 'bahwa', 'terkait', 'dalam', 'kota', 'negeri', 'indonesia', 'pemerintah', 'wilayah'].includes(w));
+    
+    const keyTopics = Array.from(new Set(rawWords)).slice(0, 4);
+
+    if (keyTopics.length > 0) {
+      AppState.threats.forEach(otherFeature => {
+        const other = otherFeature.properties;
+        if (other && other.id !== props.id && other.url && !seenUrls.has(other.url)) {
+          const otherText = (other.teks || '').toLowerCase();
+          const matchCount = keyTopics.filter(k => otherText.includes(k)).length;
+          if (matchCount >= 2 || (keyTopics.length === 1 && matchCount === 1)) {
+            let labelBadge = (other.sumber || 'TERKAIT').toUpperCase();
+            let titleText = `Laporan Terkait (${other.lokasi_nama || 'Wilayah Lain'})`;
+            add(other.url, titleText, getLinkIconBySource(other.sumber), labelBadge);
+          }
+        }
+      });
+    }
+  }
+
+  // 4. Pastikan selalu ada tautan periksa fakta / Google News resmi
+  const fallbackUrl = getRelatedNewsUrl(props);
+  if (!seenUrls.has(fallbackUrl)) {
+    if (props.label === 'hoaks') {
+      add(fallbackUrl, 'Klarifikasi Fakta (TurnBackHoax)', 'shield-alert', 'CEK FAKTA');
+    } else {
+      add(fallbackUrl, 'Penelusuran Berita (Google News)', 'search', 'GOOGLE NEWS');
+    }
+  }
+
+  return links;
+}
+
 // Helper: Format Popup Interaktif & Tombol Feedback Loop
 function createPopupContent(props) {
   const labelColor = props.label === 'hoaks' ? 'text-red-400 bg-red-950/60 border-red-800' : 
@@ -134,28 +216,10 @@ function createPopupContent(props) {
   else if (props.sumber === 'instagram') sumberLabel = '📸 Instagram';
   else if (props.sumber === 'cek_mandiri') sumberLabel = '✨ Cek Mandiri';
 
-  const newsUrl = getRelatedNewsUrl(props);
-  let linkIcon = 'newspaper';
-  let linkTitle = 'Baca Berita di Google News';
-  if (props.label === 'hoaks') {
-    linkIcon = 'shield-alert';
-    linkTitle = 'Cek Fakta di TurnBackHoax';
-  } else if (props.sumber === 'tiktok') {
-    linkIcon = 'video';
-    linkTitle = 'Lihat Isu di TikTok';
-  } else if (props.sumber === 'instagram') {
-    linkIcon = 'camera';
-    linkTitle = 'Lihat Post di Instagram';
-  } else if (props.sumber === 'twitter') {
-    linkIcon = 'message-circle';
-    linkTitle = 'Lihat di Twitter / X';
-  } else if (props.label === 'negatif') {
-    linkIcon = 'alert-triangle';
-    linkTitle = 'Pantau Berita & Isu Terkait';
-  }
+  const allLinks = getAllReferenceLinks(props);
 
   return `
-    <div class="text-xs space-y-2.5 min-w-[260px] max-w-[320px]">
+    <div class="text-xs space-y-2.5 min-w-[270px] max-w-[340px]">
       <div class="flex items-center justify-between border-b border-slate-700/60 pb-1.5">
         <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${labelColor}">
           ${props.label}
@@ -183,18 +247,28 @@ function createPopupContent(props) {
         <span class="mr-1">📍</span> Lokasi: <strong class="text-slate-200 ml-1">${props.lokasi_nama || 'Nasional'}</strong>
       </div>
 
-      <!-- Tautan Berita Terkait yang Dapat Diklik Langsung -->
-      <div class="pt-1.5 border-t border-slate-700/60">
-        <a href="${newsUrl}" target="_blank" rel="noopener noreferrer" 
-           class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-700/60 text-cyan-200 hover:text-white transition group text-[11px] font-semibold">
-          <span class="flex items-center space-x-1.5 truncate mr-1">
-            <i data-lucide="${linkIcon}" class="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition shrink-0"></i>
-            <span class="truncate max-w-[180px]">${linkTitle}</span>
+      <!-- Semua Tautan Referensi Berita Terkait -->
+      <div class="pt-2 border-t border-slate-700/60 space-y-1.5">
+        <div class="flex items-center justify-between text-[10px] text-slate-400">
+          <span class="font-bold uppercase tracking-wider text-cyan-400 flex items-center">
+            <i data-lucide="link-2" class="w-3 h-3 mr-1"></i> Tautan Referensi (${allLinks.length}):
           </span>
-          <span class="text-[10px] text-cyan-400 font-mono flex items-center shrink-0">
-            <span>Buka</span> &rarr;
-          </span>
-        </a>
+          <span class="text-[9px] text-slate-400 font-mono">Semua Sumber</span>
+        </div>
+        <div class="space-y-1 max-h-32 overflow-y-auto pr-0.5">
+          ${allLinks.map(l => `
+            <a href="${l.url}" target="_blank" rel="noopener noreferrer" 
+               class="flex items-center justify-between px-2 py-1.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900/90 border border-cyan-800/60 text-slate-200 hover:text-white transition group text-[11px] font-medium">
+              <span class="flex items-center space-x-1.5 truncate mr-1.5">
+                <i data-lucide="${l.icon}" class="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition shrink-0"></i>
+                <span class="truncate max-w-[170px]">${l.title}</span>
+              </span>
+              <span class="text-[9px] font-mono uppercase bg-slate-900/90 border border-slate-700/70 px-1 py-0.5 rounded text-cyan-300 shrink-0">
+                ${l.badge} &rarr;
+              </span>
+            </a>
+          `).join('')}
+        </div>
       </div>
 
       <!-- Feedback Loop Koreksi Analis -->
@@ -338,23 +412,58 @@ function initCharts() {
     type: 'bar',
     data: {
       labels: [],
-      datasets: [{
-        label: 'Jumlah Ancaman',
-        data: [],
-        backgroundColor: '#06b6d4',
-        borderRadius: 4
-      }]
+      datasets: [
+        {
+          label: 'Hoaks',
+          data: [],
+          backgroundColor: '#ef4444',
+          borderRadius: 3
+        },
+        {
+          label: 'Fakta',
+          data: [],
+          backgroundColor: '#3b82f6',
+          borderRadius: 3
+        },
+        {
+          label: 'Negatif',
+          data: [],
+          backgroundColor: '#f59e0b',
+          borderRadius: 3
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       indexAxis: 'y',
       scales: {
-        x: { grid: { color: 'rgba(51, 65, 85, 0.4)' }, ticks: { color: '#94a3b8', font: { size: 9 } } },
-        y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { size: 10 } } }
+        x: { 
+          stacked: true,
+          grid: { color: 'rgba(51, 65, 85, 0.4)' }, 
+          ticks: { color: '#94a3b8', font: { size: 9 }, stepSize: 2 } 
+        },
+        y: { 
+          stacked: true,
+          grid: { display: false }, 
+          ticks: { color: '#e2e8f0', font: { size: 10, weight: 'bold' } } 
+        }
       },
       plugins: {
-        legend: { display: false }
+        legend: { display: false },
+        tooltip: {
+          mode: 'index',
+          intersect: false,
+          callbacks: {
+            footer: (tooltipItems) => {
+              let sum = 0;
+              tooltipItems.forEach(item => {
+                sum += item.parsed.x;
+              });
+              return `Total Kasus: ${sum}`;
+            }
+          }
+        }
       }
     }
   });
@@ -384,10 +493,29 @@ function updateChartsAndStats(stats) {
     AppState.chartCategory.update();
   }
 
+  // Update grafik stacked bar Wilayah Terpanas dengan data faktual per kategori
   if (AppState.chartRegions && stats.top_regions) {
     AppState.chartRegions.data.labels = stats.top_regions.map(r => r.lokasi_nama);
-    AppState.chartRegions.data.datasets[0].data = stats.top_regions.map(r => parseInt(r.count, 10));
+    AppState.chartRegions.data.datasets[0].data = stats.top_regions.map(r => parseInt(r.hoaks || 0, 10));
+    AppState.chartRegions.data.datasets[1].data = stats.top_regions.map(r => parseInt(r.fakta || 0, 10));
+    AppState.chartRegions.data.datasets[2].data = stats.top_regions.map(r => parseInt(r.negatif || 0, 10));
     AppState.chartRegions.update();
+  }
+
+  // Tampilkan fakta wilayah terbanyak per kategori (Hoaks, Fakta, Sentimen Negatif)
+  if (stats.top_category_leaders) {
+    const elH = document.getElementById('top-fact-hoaks');
+    const elF = document.getElementById('top-fact-fakta');
+    const elN = document.getElementById('top-fact-negatif');
+    if (elH && stats.top_category_leaders.hoaks) {
+      elH.innerText = `${stats.top_category_leaders.hoaks.lokasi_nama} (${stats.top_category_leaders.hoaks.count})`;
+    }
+    if (elF && stats.top_category_leaders.fakta) {
+      elF.innerText = `${stats.top_category_leaders.fakta.lokasi_nama} (${stats.top_category_leaders.fakta.count})`;
+    }
+    if (elN && stats.top_category_leaders.negatif) {
+      elN.innerText = `${stats.top_category_leaders.negatif.lokasi_nama} (${stats.top_category_leaders.negatif.count})`;
+    }
   }
 }
 
@@ -421,12 +549,9 @@ function prependThreatToFeed(props, isNew = false) {
   else if (props.sumber === 'instagram') sumberIcon = '📸 Instagram';
   else if (props.sumber === 'cek_mandiri') sumberIcon = '✨ Cek Mandiri';
 
-  const newsUrl = getRelatedNewsUrl(props);
-  let linkBadgeText = 'Berita';
-  if (props.label === 'hoaks') linkBadgeText = 'Cek Fakta';
-  else if (props.sumber === 'tiktok') linkBadgeText = 'TikTok';
-  else if (props.sumber === 'instagram') linkBadgeText = 'Instagram';
-  else if (props.sumber === 'twitter') linkBadgeText = 'Twitter';
+  const allRefs = getAllReferenceLinks(props);
+  const primaryLink = allRefs[0] ? allRefs[0].url : getRelatedNewsUrl(props);
+  const refCountText = allRefs.length > 1 ? `🔗 ${allRefs.length} Rujukan` : linkBadgeText;
 
   div.innerHTML = `
     <div class="flex items-center justify-between mb-1">
@@ -438,10 +563,10 @@ function prependThreatToFeed(props, isNew = false) {
     </p>
     <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
       <span class="flex items-center space-x-1">${sumberIcon}</span>
-      <a href="${newsUrl}" target="_blank" rel="noopener noreferrer" 
+      <a href="${primaryLink}" target="_blank" rel="noopener noreferrer" 
          onclick="event.stopPropagation();" 
          class="text-cyan-400 hover:text-cyan-200 transition flex items-center space-x-1 hover:underline font-semibold bg-cyan-950/70 px-1.5 py-0.5 rounded border border-cyan-800/50">
-        <span>${linkBadgeText}</span>
+        <span>${refCountText}</span>
         <i data-lucide="external-link" class="w-2.5 h-2.5 ml-0.5"></i>
       </a>
       <span class="font-mono text-slate-500">Conf: ${Math.round((props.probabilitas || 0.5) * 100)}%</span>
@@ -730,10 +855,45 @@ function initWebSocket() {
     showToast(data.message || 'Pukul 00:00 WIB: Jendela pemantauan bergeser ke hari ini dan kemarin.');
   });
 
+  // Event saat data kadaluarsa (>2 hari) dibersihkan dari server
+  AppState.socket.on('threats_purged', (data) => {
+    console.log('[🧹] Data kadaluarsa >2 hari otomatis disingkirkan dari peta:', data);
+    fetchInitialThreats();
+    fetchStats();
+    showToast(`Pembersihan otomatis: ${data.count || 0} berita yang lewat >2 hari dihilangkan dari peta.`);
+  });
+
   AppState.socket.on('viral_engine_ready', (info) => {
     console.log('[✓]', info.message, info.rollover_schedule);
   });
 }
+
+// Pemeriksa kadaluarsa klien: memastikan bila ada berita > 2 hari langsung hilang dari peta
+function purgeExpiredThreatsClient() {
+  const cutoff = Date.now() - (48 * 60 * 60 * 1000); // 48 jam / 2 hari
+  let purgedCount = 0;
+  AppState.threats.forEach((feature, id) => {
+    const time = new Date(feature.properties.dibuat_pada).getTime();
+    if (time < cutoff) {
+      const marker = AppState.markers.get(id);
+      if (marker) {
+        AppState.map.removeLayer(marker);
+        AppState.markers.delete(id);
+      }
+      AppState.threats.delete(id);
+      const feedItem = document.getElementById(`feed-item-${id}`);
+      if (feedItem) feedItem.remove();
+      purgedCount++;
+    }
+  });
+  if (purgedCount > 0) {
+    console.log(`[🧹 Purge Klien] ${purgedCount} titik berita >2 hari otomatis dihilangkan dari peta.`);
+    updateHeatmapData();
+    renderFeedList();
+    fetchStats();
+  }
+}
+setInterval(purgeExpiredThreatsClient, 60000); // Evaluasi tiap 1 menit
 
 // ==========================================
 // 7. REST API FETCHERS

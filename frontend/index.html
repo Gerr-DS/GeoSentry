@@ -177,13 +177,38 @@
         </div>
       </div>
 
-      <!-- Charts Section: Top Regions -->
+      <!-- Charts Section: Top Regions & Faktual Kategori -->
       <div class="p-3 border-b border-slate-800/80 shrink-0">
         <div class="flex items-center justify-between mb-1.5">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center">
             <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 mr-1.5 text-emerald-400"></i> Wilayah Terpanas
           </span>
+          <span class="text-[9px] font-mono text-cyan-400 font-semibold uppercase">Faktual (48 Jam)</span>
         </div>
+
+        <!-- 3 Insight Faktual Kategori (Wilayah Terbanyak Hoaks, Fakta, Negatif) -->
+        <div class="grid grid-cols-3 gap-1 mb-2 text-center text-[10px]">
+          <div class="p-1 rounded bg-red-950/40 border border-red-900/60" title="Wilayah dengan sebaran hoaks terbanyak">
+            <div class="text-[8px] uppercase font-bold text-red-400">Hoaks Max</div>
+            <div id="top-fact-hoaks" class="font-bold text-slate-100 truncate text-[11px]">-</div>
+          </div>
+          <div class="p-1 rounded bg-blue-950/40 border border-blue-900/60" title="Wilayah dengan berita fakta terverifikasi terbanyak">
+            <div class="text-[8px] uppercase font-bold text-blue-400">Fakta Max</div>
+            <div id="top-fact-fakta" class="font-bold text-slate-100 truncate text-[11px]">-</div>
+          </div>
+          <div class="p-1 rounded bg-amber-950/40 border border-amber-900/60" title="Wilayah dengan provokasi / sentimen negatif terbanyak">
+            <div class="text-[8px] uppercase font-bold text-amber-400">Negatif Max</div>
+            <div id="top-fact-negatif" class="font-bold text-slate-100 truncate text-[11px]">-</div>
+          </div>
+        </div>
+
+        <!-- Legenda Mini Kategori -->
+        <div class="flex items-center justify-center space-x-3 text-[9px] text-slate-400 mb-1">
+          <span class="flex items-center"><span class="w-2 h-2 rounded-sm bg-red-500 mr-1"></span> Hoaks</span>
+          <span class="flex items-center"><span class="w-2 h-2 rounded-sm bg-blue-500 mr-1"></span> Fakta</span>
+          <span class="flex items-center"><span class="w-2 h-2 rounded-sm bg-amber-500 mr-1"></span> Negatif</span>
+        </div>
+
         <div class="h-36 relative">
           <canvas id="chart-regions"></canvas>
         </div>
@@ -245,14 +270,14 @@
               <div class="flex items-center space-x-2">
                 <span class="text-xs font-bold uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
                   <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block"></span>
-                  Radar Berita Viral Harian
+                  Radar Berita Viral Real-Time
                 </span>
                 <span id="window-status-badge" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700/60 uppercase">
                   Jendela 48 Jam
                 </span>
               </div>
               <p class="text-[11px] text-slate-300 mt-0.5">
-                <span id="window-range-text">Hari Ini & Kemarin</span> • Rollover: <span class="font-mono text-cyan-300 font-semibold">00:00 WIB</span>
+                <span id="window-range-text">Hari Ini & Kemarin</span> • Siklus: <span class="font-semibold text-emerald-300">Cek Tiap Jam</span> • <span class="font-semibold text-rose-300">&gt;2 Hari Otomatis Hilang</span>
               </p>
             </div>
           </div>
@@ -268,7 +293,7 @@
                 <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span class="text-[11px] font-semibold text-emerald-300 tracking-wide">Auto Ingest Realtime</span>
+              <span class="text-[11px] font-semibold text-emerald-300 tracking-wide">Hourly Auto Ingest</span>
             </div>
           </div>
         </div>

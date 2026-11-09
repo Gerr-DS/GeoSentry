@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS social_threats (
     geom          GEOMETRY(Point, 4326),
     lokasi_nama   VARCHAR(120),
     url           TEXT,
+    referensi_urls JSONB DEFAULT '[]'::jsonb,
     status_tayang BOOLEAN DEFAULT FALSE,
     dikoreksi     BOOLEAN DEFAULT FALSE,
     dibuat_pada   TIMESTAMPTZ DEFAULT NOW()

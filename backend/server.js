@@ -67,6 +67,7 @@ function rowToGeoJSONFeature(row) {
       probabilitas: Number(row.probabilitas),
       lokasi_nama: row.lokasi_nama,
       url: row.url,
+      referensi_urls: row.referensi_urls || [],
       status_tayang: Boolean(row.status_tayang),
       dikoreksi: Boolean(row.dikoreksi),
       dibuat_pada: row.dibuat_pada
@@ -85,7 +86,7 @@ app.get('/api/threats', async (req, res) => {
       SELECT 
         id, sumber, teks, label, probabilitas, 
         ST_AsGeoJSON(geom) AS geojson, 
-        lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada
+        lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada
       FROM social_threats
       WHERE status_tayang = TRUE 
         AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
@@ -135,11 +136,14 @@ app.get('/api/stats', async (req, res) => {
     const bufferCountRes = await pool.query('SELECT COUNT(*) AS total_buffer FROM social_threats;');
     const totalBuffer = parseInt(bufferCountRes.rows[0].total_buffer, 10);
 
-    // Top 5 lokasi persebaran aktif dalam jendela 48 jam
+    // Top 5 lokasi persebaran aktif dalam jendela 48 jam beserta breakdown kategori faktual
     const topRegionsQuery = `
       SELECT 
         split_part(lokasi_nama, ' (', 1) AS lokasi_nama, 
-        COUNT(*) as count
+        COUNT(*) AS count,
+        COUNT(*) FILTER (WHERE label = 'hoaks') AS hoaks,
+        COUNT(*) FILTER (WHERE label = 'fakta') AS fakta,
+        COUNT(*) FILTER (WHERE label = 'negatif') AS negatif
       FROM social_threats
       WHERE status_tayang = TRUE 
         AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
@@ -150,6 +154,43 @@ app.get('/api/stats', async (req, res) => {
       LIMIT 5;
     `;
     const topRegionsRes = await pool.query(topRegionsQuery);
+
+    // Pemimpin fakta wilayah: wilayah dengan hoaks terbanyak, fakta terbanyak, negatif terbanyak
+    const topHoaksRes = await pool.query(`
+      SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
+      FROM social_threats 
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND lokasi_nama NOT ILIKE 'Nasional%'
+        AND label = 'hoaks'
+      GROUP BY split_part(lokasi_nama, ' (', 1)
+      ORDER BY count DESC LIMIT 1;
+    `);
+
+    const topFaktaRes = await pool.query(`
+      SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
+      FROM social_threats 
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND lokasi_nama NOT ILIKE 'Nasional%'
+        AND label = 'fakta'
+      GROUP BY split_part(lokasi_nama, ' (', 1)
+      ORDER BY count DESC LIMIT 1;
+    `);
+
+    const topNegatifRes = await pool.query(`
+      SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
+      FROM social_threats 
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND lokasi_nama NOT ILIKE 'Nasional%'
+        AND label = 'negatif'
+      GROUP BY split_part(lokasi_nama, ' (', 1)
+      ORDER BY count DESC LIMIT 1;
+    `);
 
     res.json({
       total_active: parseInt(active.total_active || 0, 10),
@@ -166,7 +207,18 @@ app.get('/api/stats', async (req, res) => {
         berita: parseInt(active.berita || 0, 10)
       },
       dikoreksi: parseInt(active.dikoreksi || 0, 10),
-      top_regions: topRegionsRes.rows
+      top_regions: topRegionsRes.rows.map(r => ({
+        lokasi_nama: r.lokasi_nama,
+        count: parseInt(r.count, 10),
+        hoaks: parseInt(r.hoaks, 10),
+        fakta: parseInt(r.fakta, 10),
+        negatif: parseInt(r.negatif, 10)
+      })),
+      top_category_leaders: {
+        hoaks: topHoaksRes.rows[0] ? { lokasi_nama: topHoaksRes.rows[0].lokasi_nama, count: parseInt(topHoaksRes.rows[0].count, 10) } : { lokasi_nama: '-', count: 0 },
+        fakta: topFaktaRes.rows[0] ? { lokasi_nama: topFaktaRes.rows[0].lokasi_nama, count: parseInt(topFaktaRes.rows[0].count, 10) } : { lokasi_nama: '-', count: 0 },
+        negatif: topNegatifRes.rows[0] ? { lokasi_nama: topNegatifRes.rows[0].lokasi_nama, count: parseInt(topNegatifRes.rows[0].count, 10) } : { lokasi_nama: '-', count: 0 }
+      }
     });
   } catch (err) {
     console.error('[!] Error GET /api/stats:', err);
@@ -452,6 +504,7 @@ function executeDailyViralIngest() {
                 probabilitas: item.probabilitas,
                 lokasi_nama: item.lokasi_nama,
                 url: item.url,
+                referensi_urls: item.referensi_urls || [],
                 status_tayang: true,
                 dikoreksi: false,
                 dibuat_pada: item.dibuat_pada
@@ -524,35 +577,66 @@ app.get('/api/viral/info', async (req, res) => {
 });
 
 // ==========================================
-// AUTONOMOUS BACKGROUND INGEST WORKER (REAL-TIME)
+// HOURLY AUTONOMOUS BACKGROUND INGEST WORKER (REAL-TIME)
 // ==========================================
-// Menjalankan pengecekan & penarikan berita viral berkala di latar belakang
-// secara realtime otomatis tanpa memerlukan tombol sinkronisasi manual.
+// Memeriksa berita viral terbaru setiap jam secara otonom di latar belakang.
+// Bila ada berita viral baru, berita otomatis bertambah dan dipetakan.
+// Data yang sudah lewat >2 hari otomatis disembunyikan (hilang dari maps).
+
+async function purgeThreatsOlderThan2Days() {
+  try {
+    const purgeQuery = `
+      UPDATE social_threats 
+      SET status_tayang = FALSE 
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada < (CURRENT_DATE - INTERVAL '1 day');
+    `;
+    const res = await pool.query(purgeQuery);
+    if (res.rowCount > 0) {
+      console.log(`[🧹 Purge Otomatis] ${res.rowCount} berita yang lewat >2 hari otomatis disembunyikan dari peta.`);
+      io.emit('threats_purged', { count: res.rowCount, message: 'Data yang telah lewat >2 hari otomatis dihilangkan dari peta.' });
+    }
+  } catch (err) {
+    console.error('[!] Error purge data kadaluarsa:', err.message);
+  }
+}
+
 let isAutonomousIngesting = false;
-async function runRealtimeViralIngestWorker() {
+async function runHourlyViralIngestWorker() {
   if (isAutonomousIngesting) return;
   isAutonomousIngesting = true;
   try {
+    console.log(`\n[🕒 Hourly Ingest Worker] Menjalankan pengecekan berkala berita viral terbaru...`);
+    
+    // 1. Bersihkan berita yang sudah lewat > 2 hari agar hilang dari peta
+    await purgeThreatsOlderThan2Days();
+
+    // 2. Tarik berita viral terkini (Google News, TurnBackHoax, Antara, CNBC, TikTok, Instagram)
     const result = await executeDailyViralIngest();
     if (result && result.inserted > 0) {
-      console.log(`[⚡ Realtime Auto Ingest] Berhasil memetakan +${result.inserted} berita baru ke Leaflet!`);
+      console.log(`[⚡ Realtime Auto Ingest] +${result.inserted} berita viral baru berhasil ditambahkan dan disiarkan ke peta Leaflet!`);
       io.emit('viral_synced', {
         timestamp: new Date().toISOString(),
         result: result
       });
+    } else {
+      console.log(`[✓ Ingest Selesai] Pengecekan selesai. Seluruh data tetap sinkron.`);
     }
   } catch (err) {
-    console.error('[!] Error pada autonomous ingest worker:', err.message);
+    console.error('[!] Error pada hourly ingest worker:', err.message);
   } finally {
     isAutonomousIngesting = false;
   }
 }
 
 // Jalankan otomatis saat server pertama kali start (setelah 3 detik)
-setTimeout(runRealtimeViralIngestWorker, 3000);
+setTimeout(runHourlyViralIngestWorker, 3000);
 
-// Jalankan berkala setiap 60 detik (1 menit) secara berkelanjutan
-setInterval(runRealtimeViralIngestWorker, 60000);
+// Jalankan otomatis setiap 1 jam (3600000 ms) terus menerus
+setInterval(runHourlyViralIngestWorker, 3600000);
+
+// Evaluasi pembersihan data >2 hari setiap 5 menit
+setInterval(purgeThreatsOlderThan2Days, 300000);
 
 // ==========================================
 // AUTOMATIC MIDNIGHT ROLLOVER SCHEDULER (00:00 WIB)

@@ -9,6 +9,7 @@ dan berita terverifikasi yang tersebar merata di 38 provinsi di seluruh kepulaua
 import os
 import sys
 import random
+import json
 import urllib.parse
 from dotenv import load_dotenv
 import psycopg
@@ -155,16 +156,29 @@ def seed_national_threats():
                     else:
                         url = f"https://twitter.com/search?q={urllib.parse.quote(clean_search)}&f=live"
 
-                # Distribusikan tanggal dibuat_pada: separuh Kemarin (Nov 6) dan separuh Hari Ini (Nov 7)
+                # Siapkan daftar referensi tautan lengkap untuk berita/isu terkait
+                clean_ref_title = text[:55].replace('"', '').strip()
+                ref_list = [{"sumber": sumber, "url": url, "judul": f"Sumber Asli ({sumber.upper()})"}]
+                if label == 'hoaks':
+                    ref_list.append({"sumber": "turnbackhoax", "url": f"https://turnbackhoax.id/?s={urllib.parse.quote(clean_search)}", "judul": "TurnBackHoax (Periksa Fakta)"})
+                    ref_list.append({"sumber": "berita", "url": f"https://news.google.com/search?q={urllib.parse.quote(clean_search)}", "judul": "Verifikasi Berita (Google News)"})
+                elif label == 'fakta':
+                    ref_list.append({"sumber": "berita", "url": f"https://www.antaranews.com/search?q={urllib.parse.quote(clean_search)}", "judul": "Antara News Terkini"})
+                    ref_list.append({"sumber": "berita", "url": f"https://news.google.com/search?q={urllib.parse.quote(clean_search)}", "judul": "Portal Berita Nasional"})
+                else: # negatif
+                    ref_list.append({"sumber": "twitter", "url": f"https://twitter.com/search?q={urllib.parse.quote(clean_search)}&f=live", "judul": "Pantauan Cuitan X / Twitter"})
+                    ref_list.append({"sumber": "berita", "url": f"https://news.google.com/search?q={urllib.parse.quote(clean_search)}", "judul": "Laporan Penanganan Aparat"})
+
+                # Distribusikan tanggal dibuat_pada: separuh Kemarin dan separuh Hari Ini
                 days_offset = idx % 2
                 hour_offset = (idx * 3) % 24
                 minute_offset = (idx * 17) % 60
 
                 query = """
                     INSERT INTO social_threats 
-                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
+                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada)
                     VALUES 
-                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, TRUE, FALSE, 
+                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s::jsonb, TRUE, FALSE, 
                      CURRENT_DATE - (%s || ' days')::interval + (%s || ' hours')::interval + (%s || ' minutes')::interval);
                 """
                 cur.execute(query, (
@@ -176,6 +190,7 @@ def seed_national_threats():
                     lat,
                     f"{kota_display} ({prov})",
                     url,
+                    json.dumps(ref_list),
                     days_offset,
                     hour_offset,
                     minute_offset

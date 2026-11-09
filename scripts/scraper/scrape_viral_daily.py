@@ -9,6 +9,7 @@ import os
 import sys
 import re
 import time
+import json
 from datetime import datetime, timezone, timedelta
 import feedparser
 from bs4 import BeautifulSoup
@@ -258,7 +259,10 @@ def fetch_live_viral_rss():
                     "isi": combined_text,
                     "url": link,
                     "sumber": src["sumber_type"],
-                    "published_at": published_dt
+                    "published_at": published_dt,
+                    "referensi_urls": [
+                        {"sumber": src["sumber_type"], "url": link, "judul": title}
+                    ]
                 })
         except Exception as e:
             print(f"[!] Gagal menarik feed {src['nama']}: {e}", file=sys.stderr)
@@ -288,6 +292,9 @@ def sync_viral_threats_to_db():
                 "url": fb["url"],
                 "sumber": fb["sumber"],
                 "published_at": dt,
+                "referensi_urls": fb.get("referensi_urls", [
+                    {"sumber": fb["sumber"], "url": fb["url"], "judul": fb["judul"]}
+                ]),
                 "forced_loc": {
                     "nama": fb["kota"],
                     "provinsi": fb["kota"].split("(")[-1].replace(")", "").strip(),
@@ -308,16 +315,43 @@ def sync_viral_threats_to_db():
                 published_at = art["published_at"]
 
                 # 1. Cek apakah artikel dengan URL atau judul serupa sudah ada
-                cur.execute("SELECT id FROM social_threats WHERE url = %s OR teks = %s LIMIT 1;", (url, text))
+                cur.execute("SELECT id, url, referensi_urls FROM social_threats WHERE url = %s OR teks = %s LIMIT 1;", (url, text))
                 existing = cur.fetchone()
 
                 if existing:
-                    # Update status_tayang dan waktu publikasi jika diperlukan
-                    cur.execute("""
-                        UPDATE social_threats 
-                        SET status_tayang = TRUE, dibuat_pada = %s
-                        WHERE id = %s;
-                    """, (published_at, existing[0]))
+                    existing_id, existing_url, existing_refs = existing
+                    if not existing_refs:
+                        existing_refs = []
+                    elif isinstance(existing_refs, str):
+                        try:
+                            existing_refs = json.loads(existing_refs)
+                        except Exception:
+                            existing_refs = []
+
+                    urls_in_refs = {r.get("url") if isinstance(r, dict) else r for r in existing_refs}
+                    urls_in_refs.add(existing_url)
+
+                    # Jika ada URL rujukan baru dari berita/isu yang sama, gabungkan ke referensi_urls
+                    has_new_ref = False
+                    article_refs = art.get("referensi_urls", [{"sumber": art["sumber"], "url": url, "judul": art.get("judul", "Laporan Sumber Terkait")}])
+                    for r in article_refs:
+                        if r.get("url") and r["url"] not in urls_in_refs:
+                            existing_refs.append(r)
+                            urls_in_refs.add(r["url"])
+                            has_new_ref = True
+
+                    if has_new_ref:
+                        cur.execute("""
+                            UPDATE social_threats 
+                            SET status_tayang = TRUE, dibuat_pada = %s, referensi_urls = %s::jsonb
+                            WHERE id = %s;
+                        """, (published_at, json.dumps(existing_refs), existing_id))
+                    else:
+                        cur.execute("""
+                            UPDATE social_threats 
+                            SET status_tayang = TRUE, dibuat_pada = %s
+                            WHERE id = %s;
+                        """, (published_at, existing_id))
                     updated_count += 1
                     continue
 
@@ -346,12 +380,17 @@ def sync_viral_threats_to_db():
                 lat = loc["lat"]
                 lon = loc["lon"]
 
-                # 5. Simpan ke Database PostgreSQL PostGIS
+                # Siapkan daftar semua tautan referensi terkait
+                initial_refs = art.get("referensi_urls", [
+                    {"sumber": sumber_final, "url": url, "judul": art.get("judul", text[:70])}
+                ])
+
+                # 5. Simpan ke Database PostgreSQL PostGIS dengan referensi_urls lengkap
                 query = """
                     INSERT INTO social_threats 
-                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, status_tayang, dikoreksi, dibuat_pada)
+                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada)
                     VALUES 
-                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, TRUE, FALSE, %s)
+                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s::jsonb, TRUE, FALSE, %s)
                     RETURNING id;
                 """
                 cur.execute(query, (
@@ -363,6 +402,7 @@ def sync_viral_threats_to_db():
                     lat,
                     lokasi_nama,
                     url,
+                    json.dumps(initial_refs),
                     published_at
                 ))
                 new_id = cur.fetchone()[0]
@@ -375,6 +415,7 @@ def sync_viral_threats_to_db():
                     "geom": {"type": "Point", "coordinates": [lon, lat]},
                     "lokasi_nama": lokasi_nama,
                     "url": url,
+                    "referensi_urls": initial_refs,
                     "dibuat_pada": published_at.isoformat() if hasattr(published_at, "isoformat") else str(published_at)
                 })
                 inserted_count += 1
