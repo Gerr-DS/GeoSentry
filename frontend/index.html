@@ -257,18 +257,19 @@
             </div>
           </div>
 
-          <!-- Aksi & Sinkronisasi Real-Time -->
-          <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
-            <div class="text-right hidden md:block mr-2">
-              <div class="text-[10px] uppercase font-bold text-slate-400">Total Valid</div>
+          <!-- Status Pemantauan Real-Time Otomatis -->
+          <div class="flex items-center space-x-3 w-full sm:w-auto justify-end">
+            <div class="text-right">
+              <div class="text-[10px] uppercase font-bold text-slate-400">Total Berita Terpantau</div>
               <div class="text-xs font-mono font-bold text-cyan-300"><span id="viral-active-count">0</span> Titik Tersebar</div>
             </div>
-
-            <!-- Tombol Sinkronisasi Berita Viral -->
-            <button id="btn-sync-viral" title="Ambil dan validasi berita viral hari ini dari Google News & TurnBackHoax" class="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs flex items-center space-x-1.5 shadow-lg shadow-cyan-500/25 transition active:scale-95">
-              <i id="btn-sync-icon" data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span id="btn-sync-text">Sinkronkan Hari Ini</span>
-            </button>
+            <div class="px-3 py-1.5 rounded-xl bg-slate-800/80 border border-emerald-500/30 flex items-center space-x-2 shadow-inner">
+              <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span class="text-[11px] font-semibold text-emerald-300 tracking-wide">Auto Ingest Realtime</span>
+            </div>
           </div>
         </div>
       </div>

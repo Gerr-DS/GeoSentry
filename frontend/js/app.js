@@ -883,41 +883,8 @@ function initUIEvents() {
     }, 4500);
   }
 
-  // Sinkronisasi Berita Viral Harian (Tombol Radar Berita Viral)
-  const btnSyncViral = document.getElementById('btn-sync-viral');
-  if (btnSyncViral) {
-    btnSyncViral.onclick = async () => {
-      const syncIcon = document.getElementById('btn-sync-icon');
-      const syncText = document.getElementById('btn-sync-text');
+  // Pemantauan Berita Viral berjalan secara realtime otomatis di backend & WebSocket
 
-      btnSyncViral.disabled = true;
-      if (syncIcon) syncIcon.classList.add('animate-spin');
-      if (syncText) syncText.innerText = 'Menyinkronkan...';
-
-      try {
-        const res = await fetch('/api/viral/sync', { method: 'POST' });
-        const data = await res.json();
-        if (data.success) {
-          showToast(`Sinkronisasi selesai! Berita viral hari ini (${data.data?.fetched || 0} artikel) berhasil divalidasi.`);
-          AppState.threats.clear();
-          AppState.markers.forEach(m => AppState.map.removeLayer(m));
-          AppState.markers.clear();
-          updateHeatmapData();
-          renderFeedList();
-          await fetchInitialThreats();
-          await fetchStats();
-        } else {
-          showToast(`Gagal sinkronisasi: ${data.error || 'Server error'}`, true);
-        }
-      } catch (err) {
-        showToast('Koneksi sinkronisasi gagal.', true);
-      } finally {
-        btnSyncViral.disabled = false;
-        if (syncIcon) syncIcon.classList.remove('animate-spin');
-        if (syncText) syncText.innerText = 'Sinkronkan Hari Ini';
-      }
-    };
-  }
 
   // MODAL CEK BERITA MANDIRI
   const modalChecker = document.getElementById('modal-checker');

@@ -524,6 +524,37 @@ app.get('/api/viral/info', async (req, res) => {
 });
 
 // ==========================================
+// AUTONOMOUS BACKGROUND INGEST WORKER (REAL-TIME)
+// ==========================================
+// Menjalankan pengecekan & penarikan berita viral berkala di latar belakang
+// secara realtime otomatis tanpa memerlukan tombol sinkronisasi manual.
+let isAutonomousIngesting = false;
+async function runRealtimeViralIngestWorker() {
+  if (isAutonomousIngesting) return;
+  isAutonomousIngesting = true;
+  try {
+    const result = await executeDailyViralIngest();
+    if (result && result.inserted > 0) {
+      console.log(`[⚡ Realtime Auto Ingest] Berhasil memetakan +${result.inserted} berita baru ke Leaflet!`);
+      io.emit('viral_synced', {
+        timestamp: new Date().toISOString(),
+        result: result
+      });
+    }
+  } catch (err) {
+    console.error('[!] Error pada autonomous ingest worker:', err.message);
+  } finally {
+    isAutonomousIngesting = false;
+  }
+}
+
+// Jalankan otomatis saat server pertama kali start (setelah 3 detik)
+setTimeout(runRealtimeViralIngestWorker, 3000);
+
+// Jalankan berkala setiap 60 detik (1 menit) secara berkelanjutan
+setInterval(runRealtimeViralIngestWorker, 60000);
+
+// ==========================================
 // AUTOMATIC MIDNIGHT ROLLOVER SCHEDULER (00:00 WIB)
 // ==========================================
 // Mendeteksi pergantian tanggal otomatis pada pukul 00:00 WIB,
