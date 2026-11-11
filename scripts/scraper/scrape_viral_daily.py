@@ -60,6 +60,49 @@ RSS_SOURCES = [
         "url": "https://www.cnbcindonesia.com/news/rss",
         "sumber_type": "berita",
         "default_label": None
+    },
+    # JALUR EKSKLUSIF MEDIA SOSIAL (TIKTOK, INSTAGRAM, TWITTER/X, REDDIT, BLUESKY)
+    {
+        "nama": "TikTok Viral Indonesia",
+        "url": "https://news.google.com/rss/search?q=site:tiktok.com+viral+OR+hoaks+OR+bansos+OR+heboh+indonesia&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "tiktok",
+        "default_label": None
+    },
+    {
+        "nama": "Instagram Reels & Postingan Viral",
+        "url": "https://news.google.com/rss/search?q=site:instagram.com+viral+OR+klarifikasi+OR+hoaks+OR+kejadian+indonesia&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "instagram",
+        "default_label": None
+    },
+    {
+        "nama": "Twitter / X Trending Indonesia",
+        "url": "https://news.google.com/rss/search?q=viral+cuitan+OR+tweet+OR+trending+X+OR+twitter+indonesia&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "twitter",
+        "default_label": None
+    },
+    {
+        "nama": "Reddit r/indonesia Diskusi Viral",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/indonesia+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "reddit",
+        "default_label": None
+    },
+    {
+        "nama": "Reddit Indonesia Isu Hangat",
+        "url": "https://news.google.com/rss/search?q=site:reddit.com+indonesia+viral+when:3d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "reddit",
+        "default_label": None
+    },
+    {
+        "nama": "Bluesky Indonesia Antara Feed",
+        "url": "https://bsky.app/profile/antara-poster.bsky.social/rss",
+        "sumber_type": "bluesky",
+        "default_label": None
+    },
+    {
+        "nama": "Bluesky Indonesia Fortune Feed",
+        "url": "https://bsky.app/profile/fortuneidn.bsky.social/rss",
+        "sumber_type": "bluesky",
+        "default_label": None
     }
 ]
 
@@ -237,13 +280,16 @@ def fetch_live_viral_rss():
             if not feed.entries:
                 continue
 
-            for entry in feed.entries[:15]:
-                title = entry.get("title", "").strip()
+            for entry in feed.entries[:30]:
+                raw_summary = entry.get("summary", entry.get("description", ""))
+                summary = clean_html(raw_summary)
+                raw_title = entry.get("title")
+                title = str(raw_title).strip() if raw_title else ""
+                if not title or title.lower() in ["none", "null"]:
+                    title = summary[:120].strip() if summary else ""
                 if not title:
                     continue
 
-                raw_summary = entry.get("summary", entry.get("description", ""))
-                summary = clean_html(raw_summary)
                 link = entry.get("link", src["url"])
 
                 # Parse tanggal publikasi
@@ -364,15 +410,21 @@ def sync_viral_threats_to_db():
                     updated_count += 1
                     continue
 
-                # 2. Deteksi media sosial asal (TikTok, Instagram, Twitter) jika artikel membahas postingan medsos
+                # 2. Deteksi media sosial asal (TikTok, Instagram, Twitter, Reddit, Bluesky)
                 sumber_final = art["sumber"]
                 lower_txt = text.lower()
-                if "tiktok" in lower_txt:
-                    sumber_final = "tiktok"
-                elif "instagram" in lower_txt or "postingan ig" in lower_txt or "akun ig" in lower_txt:
-                    sumber_final = "instagram"
-                elif "twitter" in lower_txt or "akun x" in lower_txt or "cuitan" in lower_txt:
-                    sumber_final = "twitter"
+                lower_url = url.lower()
+                if sumber_final in ["berita", "google_news", "turnbackhoax"]:
+                    if "tiktok" in lower_txt or "tiktok.com" in lower_url:
+                        sumber_final = "tiktok"
+                    elif "instagram" in lower_txt or "instagram.com" in lower_url or "postingan ig" in lower_txt or "akun ig" in lower_txt:
+                        sumber_final = "instagram"
+                    elif "twitter" in lower_txt or "twitter.com" in lower_url or "x.com" in lower_url or "akun x" in lower_txt or "cuitan" in lower_txt:
+                        sumber_final = "twitter"
+                    elif "reddit" in lower_txt or "reddit.com" in lower_url or "r/indonesia" in lower_txt:
+                        sumber_final = "reddit"
+                    elif "bluesky" in lower_txt or "bsky.app" in lower_url or "bsky.social" in lower_url:
+                        sumber_final = "bluesky"
 
                 # 3. Klasifikasi AI (Hybrid NLP SGD + TurnBackHoax Knowledge Base)
                 pred = predict_threat(text)
