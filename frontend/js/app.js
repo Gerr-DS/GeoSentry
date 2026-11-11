@@ -12,11 +12,11 @@
 const AppState = {
   threats: new Map(), // id -> feature
   markers: new Map(), // id -> L.marker
-  currentFilter: { label: 'all', sumber: 'all', search: '' },
+  currentFilter: { label: 'all', sumber: 'all', search: '', provinsi: 'all' },
+  provinces: [], // daftar 38 provinsi dari API
   activeLayer: 'markers', // 'markers' | 'heatmap'
-  basemapMode: 'esri', // 'esri' | 'osm_dark' | 'osm_light'
+  basemapMode: 'osm_light',
   map: null,
-  esriDarkTile: null,
   osmTile: null,
   heatLayer: null,
   chartCategory: null,
@@ -125,6 +125,9 @@ function getLinkIconBySource(sumber) {
   if (sumber === 'twitter') return 'message-circle';
   if (sumber === 'tiktok') return 'video';
   if (sumber === 'instagram') return 'camera';
+  if (sumber === 'mastodon') return 'users';
+  if (sumber === 'bluesky') return 'cloud';
+  if (sumber === 'reddit') return 'message-square';
   if (sumber === 'turnbackhoax') return 'shield-alert';
   return 'newspaper';
 }
@@ -214,6 +217,9 @@ function createPopupContent(props) {
   if (props.sumber === 'twitter') sumberLabel = '🐦 Twitter';
   else if (props.sumber === 'tiktok') sumberLabel = '📱 TikTok';
   else if (props.sumber === 'instagram') sumberLabel = '📸 Instagram';
+  else if (props.sumber === 'mastodon') sumberLabel = '🐘 Mastodon';
+  else if (props.sumber === 'bluesky') sumberLabel = '🦋 Bluesky';
+  else if (props.sumber === 'reddit') sumberLabel = '👽 Reddit';
   else if (props.sumber === 'cek_mandiri') sumberLabel = '✨ Cek Mandiri';
 
   const allLinks = getAllReferenceLinks(props);
@@ -332,12 +338,21 @@ function addThreatToMap(feature, autoFly = false) {
 }
 
 function isFeatureMatchFilter(feature) {
-  const { label, sumber, search } = AppState.currentFilter;
+  const { label, sumber, search, provinsi } = AppState.currentFilter;
   const p = feature.properties;
 
   const matchLabel = label === 'all' || p.label === label;
   const matchSumber = sumber === 'all' || p.sumber === sumber;
   
+  // Filter Provinsi
+  let matchProv = true;
+  if (provinsi && provinsi !== 'all') {
+    const provLower = provinsi.toLowerCase().trim();
+    const pProv = (p.provinsi || '').toLowerCase().trim();
+    const pLokasi = (p.lokasi_nama || '').toLowerCase().trim();
+    matchProv = pProv === provLower || pLokasi.includes(provLower);
+  }
+
   let matchSearch = true;
   if (search && search.trim() !== '') {
     const q = search.toLowerCase().trim();
@@ -347,7 +362,7 @@ function isFeatureMatchFilter(feature) {
     matchSearch = textMatch || locMatch || labelMatch;
   }
 
-  return matchLabel && matchSumber && matchSearch;
+  return matchLabel && matchSumber && matchProv && matchSearch;
 }
 
 function applyFilters() {
@@ -547,11 +562,14 @@ function prependThreatToFeed(props, isNew = false) {
   if (props.sumber === 'twitter') sumberIcon = '🐦 Twitter';
   else if (props.sumber === 'tiktok') sumberIcon = '📱 TikTok';
   else if (props.sumber === 'instagram') sumberIcon = '📸 Instagram';
+  else if (props.sumber === 'mastodon') sumberIcon = '🐘 Mastodon';
+  else if (props.sumber === 'bluesky') sumberIcon = '🦋 Bluesky';
+  else if (props.sumber === 'reddit') sumberIcon = '👽 Reddit';
   else if (props.sumber === 'cek_mandiri') sumberIcon = '✨ Cek Mandiri';
 
   const allRefs = getAllReferenceLinks(props);
   const primaryLink = allRefs[0] ? allRefs[0].url : getRelatedNewsUrl(props);
-  const refCountText = allRefs.length > 1 ? `🔗 ${allRefs.length} Rujukan` : linkBadgeText;
+  const refCountText = allRefs.length > 1 ? `🔗 ${allRefs.length} Rujukan` : (props.sumber || 'BERITA').toUpperCase();
 
   div.innerHTML = `
     <div class="flex items-center justify-between mb-1">
@@ -838,7 +856,17 @@ function initWebSocket() {
     console.log('[+] Berita viral baru tersinkronkan:', data);
     fetchInitialThreats();
     fetchStats();
+    loadProvinces();
     showToast(`Berita viral harian disinkronkan (+${data.result?.inserted || 0} baru).`);
+  });
+
+  // Event saat sinkronisasi media sosial gratis (Mastodon / Bluesky / Reddit) selesai
+  AppState.socket.on('social_synced', (data) => {
+    console.log('[+] Media sosial baru tersinkronkan:', data);
+    fetchInitialThreats();
+    fetchStats();
+    loadProvinces();
+    showToast(`Media sosial disinkronkan (+${data.result?.inserted || 0} postingan baru).`);
   });
 
   // Event saat pergantian hari (00:00 WIB Rollover)
@@ -852,6 +880,7 @@ function initWebSocket() {
     renderFeedList();
     fetchInitialThreats();
     fetchStats();
+    loadProvinces();
     showToast(data.message || 'Pukul 00:00 WIB: Jendela pemantauan bergeser ke hari ini dan kemarin.');
   });
 
@@ -860,6 +889,7 @@ function initWebSocket() {
     console.log('[🧹] Data kadaluarsa >2 hari otomatis disingkirkan dari peta:', data);
     fetchInitialThreats();
     fetchStats();
+    loadProvinces();
     showToast(`Pembersihan otomatis: ${data.count || 0} berita yang lewat >2 hari dihilangkan dari peta.`);
   });
 
@@ -922,6 +952,143 @@ async function fetchStats() {
   }
 }
 
+// Memuat Direktori 38 Provinsi beserta statistik berita viral 48 jam terakhir
+async function loadProvinces() {
+  try {
+    const res = await fetch('/api/provinces');
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      AppState.provinces = data;
+      
+      // Update Dropdown Filter Provinsi
+      const selectProv = document.getElementById('filter-provinsi');
+      if (selectProv) {
+        const curVal = AppState.currentFilter.provinsi || 'all';
+        selectProv.innerHTML = '<option value="all">🇮🇩 Seluruh Indonesia (38 Provinsi)</option>';
+        data.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.provinsi;
+          opt.innerText = `${p.provinsi} (${p.total} berita)`;
+          selectProv.appendChild(opt);
+        });
+        selectProv.value = curVal;
+      }
+
+      // Update Modal 38 Provinsi
+      renderProvinceCards(data);
+      const totalCountBadge = document.getElementById('modal-prov-total-count');
+      if (totalCountBadge) {
+        totalCountBadge.innerText = data.length;
+      }
+    }
+  } catch (err) {
+    console.error('[!] Gagal memuat data provinsi:', err);
+  }
+}
+
+// Render kartu provinsi di dalam Modal Jelajah 38 Provinsi
+function renderProvinceCards(provincesList) {
+  const container = document.getElementById('province-cards-container');
+  if (!container) return;
+
+  container.innerHTML = '';
+  if (!provincesList || provincesList.length === 0) {
+    container.innerHTML = `
+      <div class="col-span-full py-12 text-center text-slate-400 text-xs">
+        <i data-lucide="map-pin-off" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+        Tidak ada data provinsi yang cocok dengan pencarian.
+      </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  provincesList.forEach(prov => {
+    const card = document.createElement('div');
+    const isActive = (AppState.currentFilter.provinsi || '').toLowerCase() === (prov.provinsi || '').toLowerCase();
+    
+    card.className = `p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between group ${
+      isActive 
+        ? 'bg-cyan-950/80 border-cyan-400 shadow-lg shadow-cyan-900/40 ring-1 ring-cyan-400' 
+        : 'bg-slate-900/90 border-slate-800 hover:border-cyan-500/60 hover:bg-slate-800'
+    }`;
+
+    card.innerHTML = `
+      <div class="flex items-start justify-between mb-2">
+        <div class="flex items-center space-x-2">
+          <div class="w-7 h-7 rounded-lg bg-slate-800 group-hover:bg-cyan-900/60 border border-slate-700 group-hover:border-cyan-500/50 flex items-center justify-center shrink-0 transition">
+            <i data-lucide="map-pin" class="w-3.5 h-3.5 ${isActive ? 'text-cyan-400' : 'text-slate-400 group-hover:text-cyan-300'}"></i>
+          </div>
+          <div>
+            <h4 class="text-xs font-bold text-slate-100 group-hover:text-cyan-200 transition">${prov.provinsi}</h4>
+            <span class="text-[10px] text-slate-400 font-mono">Pusat: [${prov.center_lat || '-'}, ${prov.center_lon || '-'}]</span>
+          </div>
+        </div>
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+          prov.total > 0 ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/80' : 'bg-slate-800 text-slate-400'
+        }">
+          ${prov.total} Berita
+        </span>
+      </div>
+
+      <!-- Kategori Breakdown Badges -->
+      <div class="flex items-center space-x-1.5 text-[10px] pt-2 border-t border-slate-800/80">
+        <span class="px-1.5 py-0.5 rounded bg-red-950/60 border border-red-900/50 text-red-400 font-mono" title="Hoaks">
+          🔴 ${prov.hoaks || 0}
+        </span>
+        <span class="px-1.5 py-0.5 rounded bg-blue-950/60 border border-blue-900/50 text-blue-400 font-mono" title="Fakta">
+          🔵 ${prov.fakta || 0}
+        </span>
+        <span class="px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-900/50 text-amber-400 font-mono" title="Sentimen Negatif">
+          🟡 ${prov.negatif || 0}
+        </span>
+        <div class="flex-1 text-right">
+          <span class="text-[10px] text-cyan-400 group-hover:text-cyan-200 font-semibold flex items-center justify-end space-x-0.5">
+            <span>Pilih</span>
+            <i data-lucide="chevron-right" class="w-3 h-3"></i>
+          </span>
+        </div>
+      </div>
+    `;
+
+    card.onclick = () => {
+      selectProvince(prov);
+      const modal = document.getElementById('modal-provinces');
+      if (modal) modal.classList.add('hidden');
+    };
+
+    container.appendChild(card);
+  });
+
+  if (window.lucide && typeof lucide.createIcons === 'function') {
+    lucide.createIcons();
+  }
+}
+
+// Memilih provinsi dan memusatkan peta
+function selectProvince(prov) {
+  if (!prov || prov.provinsi === 'all') {
+    AppState.currentFilter.provinsi = 'all';
+    const select = document.getElementById('filter-provinsi');
+    if (select) select.value = 'all';
+    AppState.map.flyTo([-2.2, 118.0], 5, { duration: 1.2 });
+    applyFilters();
+    showToast('Menampilkan seluruh wilayah Indonesia (38 Provinsi)');
+    return;
+  }
+
+  AppState.currentFilter.provinsi = prov.provinsi;
+  const select = document.getElementById('filter-provinsi');
+  if (select) select.value = prov.provinsi;
+
+  if (prov.center_lat && prov.center_lon) {
+    AppState.map.flyTo([prov.center_lat, prov.center_lon], 7, { duration: 1.4 });
+  }
+
+  applyFilters();
+  showToast(`Memantau Provinsi ${prov.provinsi}: ${prov.total} berita viral aktif.`);
+}
+
 // ==========================================
 // 8. EVENT LISTENERS UI & PENCARIAN
 // ==========================================
@@ -970,6 +1137,25 @@ function initUIEvents() {
     }
   });
 
+  // Filter Provinsi
+  const selectProv = document.getElementById('filter-provinsi');
+  if (selectProv) {
+    selectProv.onchange = (e) => {
+      const val = e.target.value;
+      if (val === 'all') {
+        selectProvince({ provinsi: 'all' });
+      } else {
+        const found = AppState.provinces.find(p => p.provinsi.toLowerCase() === val.toLowerCase());
+        if (found) {
+          selectProvince(found);
+        } else {
+          AppState.currentFilter.provinsi = val;
+          applyFilters();
+        }
+      }
+    };
+  }
+
   // Filter Kategori & Sumber
   document.getElementById('filter-label').onchange = (e) => {
     AppState.currentFilter.label = e.target.value;
@@ -984,6 +1170,31 @@ function initUIEvents() {
     fetchStats();
     if (AppState.map) AppState.map.invalidateSize();
   };
+
+  // Tombol Sinkronisasi Media Sosial Gratis (Mastodon / Bluesky / Reddit)
+  const btnSyncSocial = document.getElementById('btn-sync-social');
+  if (btnSyncSocial) {
+    btnSyncSocial.onclick = async () => {
+      const labelSpan = btnSyncSocial.querySelector('span');
+      const originalText = labelSpan ? labelSpan.innerText : 'Sinkronisasi Media Sosial';
+      btnSyncSocial.disabled = true;
+      if (labelSpan) labelSpan.innerText = 'Menarik data...';
+      try {
+        const res = await fetch('/api/social/sync', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Media sosial: +${data.data?.inserted || 0} baru, ${data.data?.updated || 0} diperbarui.`);
+        } else {
+          showToast('Sinkronisasi media sosial gagal: ' + (data.error || 'tidak diketahui'), true);
+        }
+      } catch (err) {
+        showToast('Gagal terhubung ke server saat sinkronisasi media sosial.', true);
+      } finally {
+        btnSyncSocial.disabled = false;
+        if (labelSpan) labelSpan.innerText = originalText;
+      }
+    };
+  }
 
 
   // Layer Switcher: Markers vs Heatmap
@@ -1084,6 +1295,57 @@ function initUIEvents() {
       runNewsAnalysis(true);
     };
   }
+
+  // MODAL DIREKTORI 38 PROVINSI
+  const modalProvinces = document.getElementById('modal-provinces');
+  const btnOpenProvinces = document.getElementById('btn-open-province-modal');
+  const btnOpenProvincesSide = document.getElementById('btn-open-province-modal-side');
+  const btnCloseProvinces = document.getElementById('btn-close-provinces');
+  const btnCloseProvincesFooter = document.getElementById('btn-close-provinces-footer');
+  const inputFilterModal = document.getElementById('input-filter-province-modal');
+  const btnResetProvFilter = document.getElementById('btn-reset-province-filter');
+
+  const openProvModal = () => {
+    if (modalProvinces) {
+      modalProvinces.classList.remove('hidden');
+      if (inputFilterModal) inputFilterModal.value = '';
+      renderProvinceCards(AppState.provinces);
+    }
+  };
+
+  const closeProvModal = () => {
+    if (modalProvinces) modalProvinces.classList.add('hidden');
+  };
+
+  if (btnOpenProvinces) btnOpenProvinces.onclick = openProvModal;
+  if (btnOpenProvincesSide) btnOpenProvincesSide.onclick = openProvModal;
+  if (btnCloseProvinces) btnCloseProvinces.onclick = closeProvModal;
+  if (btnCloseProvincesFooter) btnCloseProvincesFooter.onclick = closeProvModal;
+
+  if (modalProvinces) {
+    modalProvinces.onclick = (e) => {
+      if (e.target === modalProvinces) closeProvModal();
+    };
+  }
+
+  if (inputFilterModal) {
+    inputFilterModal.addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) {
+        renderProvinceCards(AppState.provinces);
+      } else {
+        const filtered = AppState.provinces.filter(p => p.provinsi.toLowerCase().includes(q));
+        renderProvinceCards(filtered);
+      }
+    });
+  }
+
+  if (btnResetProvFilter) {
+    btnResetProvFilter.onclick = () => {
+      selectProvince({ provinsi: 'all' });
+      closeProvModal();
+    };
+  }
 }
 
 // Inisialisasi Utama
@@ -1095,4 +1357,5 @@ window.addEventListener('DOMContentLoaded', () => {
   loadCitiesDatalist();
   fetchInitialThreats();
   fetchStats();
+  loadProvinces();
 });

@@ -58,3 +58,7 @@ python scripts/simulator.py --interval 2.5
    - Lapisan titik marker berdenyut (Merah: Hoaks, Biru: Fakta, Amber: Sentimen Negatif).
    - Lapisan Peta Panas (*Heatmap*) dinamis (`leaflet.heat`).
    - Panel analitik statistik Donut Chart & Bar Chart wilayah terpanas (`Chart.js`).
+6. **Free Social Media Scraper (Tanpa API Key)**:
+   - Menarik postingan asli dari Mastodon (`mastodon.social` & `mastodon.kodesumber.com`), Bluesky (*public API*), dan Reddit (`r/indonesia`) via `scripts/scraper/free_social_scraper.py`.
+   - Terintegrasi ke worker per jam, endpoint `POST /api/social/sync`, dan tombol **"Sinkronisasi Media Sosial"** di dasbor.
+   - Catatan: Bluesky & Reddit bisa diblokir oleh jaringan/IP tertentu; Mastodon terbukti stabil. Semua kegagalan per sumber ditangani lembut (skip + log).

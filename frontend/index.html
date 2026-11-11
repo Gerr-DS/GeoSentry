@@ -83,7 +83,16 @@
         </button>
       </div>
 
-      <!-- Tombol Cek Berita Mandiri -->
+      <!-- Tombol Jelajah 38 Provinsi & Cek Berita Mandiri -->
+      <button 
+        id="btn-open-province-modal" 
+        class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-300 hover:text-white border border-cyan-700/60 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow transition active:scale-95 shrink-0"
+        title="Jelajah & Pantau 38 Provinsi Indonesia"
+      >
+        <i data-lucide="map" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span class="hidden md:inline">38 Provinsi</span>
+      </button>
+
       <button 
         id="btn-open-checker" 
         class="px-3.5 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-lg shadow-cyan-600/25 transition active:scale-95 shrink-0"
@@ -136,11 +145,24 @@
       <div class="p-3 border-b border-slate-800/80 bg-slate-950/40 shrink-0">
         <div class="flex items-center justify-between mb-2">
           <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center">
-            <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 mr-1.5 text-cyan-400"></i> Filter Kategori
+            <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5 mr-1.5 text-cyan-400"></i> Filter Radar
           </span>
-          <button id="btn-refresh" class="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center">
-            <i data-lucide="rotate-cw" class="w-3 h-3 mr-1"></i> Refresh
-          </button>
+          <div class="flex items-center space-x-2">
+            <button id="btn-open-province-modal-side" class="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center" title="Buka Direktori 38 Provinsi">
+              <i data-lucide="map-pin" class="w-3 h-3 mr-0.5"></i> 38 Provinsi
+            </button>
+            <span class="text-slate-600">•</span>
+            <button id="btn-refresh" class="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center">
+              <i data-lucide="rotate-cw" class="w-3 h-3 mr-1"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Dropdown Provinsi (38 Provinsi) -->
+        <div class="mb-2">
+          <select id="filter-provinsi" class="w-full bg-slate-800 border border-cyan-800/80 text-cyan-200 font-semibold rounded px-2.5 py-1.5 focus:outline-none focus:border-cyan-400 text-xs">
+            <option value="all">🇮🇩 Seluruh Indonesia (38 Provinsi)</option>
+          </select>
         </div>
         
         <div class="grid grid-cols-2 gap-2 text-xs">
@@ -159,6 +181,9 @@
             <option value="twitter">🐦 Twitter / X</option>
             <option value="tiktok">📱 TikTok</option>
             <option value="instagram">📸 Instagram</option>
+            <option value="mastodon">🐘 Mastodon</option>
+            <option value="bluesky">🦋 Bluesky</option>
+            <option value="reddit">👽 Reddit</option>
             <option value="cek_mandiri">✨ Cek Mandiri</option>
           </select>
         </div>
@@ -295,6 +320,10 @@
               </span>
               <span class="text-[11px] font-semibold text-emerald-300 tracking-wide">Hourly Auto Ingest</span>
             </div>
+            <button id="btn-sync-social" title="Tarik postingan terbaru dari Mastodon / Bluesky / Reddit (gratis, tanpa API key)" class="px-3 py-1.5 rounded-xl bg-cyan-950 border border-cyan-700/60 text-cyan-300 text-[11px] font-semibold flex items-center space-x-1.5 hover:bg-cyan-900 transition active:scale-95">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Sinkronisasi Media Sosial</span>
+            </button>
           </div>
         </div>
       </div>
@@ -422,6 +451,75 @@
             <span id="res-news-link-label">Buka Berita Terkait &rarr;</span>
           </a>
         </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: JELAJAH 38 PROVINSI INDONESIA (JENDELA 48 JAM) -->
+  <!-- ============================================== -->
+  <div id="modal-provinces" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
+    <div class="glass-panel w-full max-w-4xl max-h-[88vh] rounded-2xl shadow-2xl border border-cyan-500/40 p-5 flex flex-col space-y-4">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+        <div class="flex items-center space-x-2.5">
+          <div class="w-9 h-9 rounded-xl bg-cyan-950 border border-cyan-600/60 flex items-center justify-center shadow-lg shadow-cyan-900/30">
+            <i data-lucide="map" class="w-5 h-5 text-cyan-400"></i>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-100 flex items-center space-x-2">
+              <span>Direktori Berita Viral 38 Provinsi Indonesia</span>
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700/60 uppercase">
+                48 Jam Terakhir
+              </span>
+            </h3>
+            <p class="text-[11px] text-slate-400">Pilih provinsi untuk memusatkan peta dan menyaring radar berita viral secara instan</p>
+          </div>
+        </div>
+        <button id="btn-close-provinces" class="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Quick Filter & Summary Bar -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
+        <div class="relative w-full sm:w-80">
+          <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+            <i data-lucide="search" class="w-3.5 h-3.5"></i>
+          </div>
+          <input 
+            id="input-filter-province-modal" 
+            type="text" 
+            placeholder="Cari provinsi (mis: Jawa Timur, Papua, Bali)..." 
+            class="w-full pl-8 pr-3 py-1.5 bg-slate-950/70 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+          >
+        </div>
+        <div class="flex items-center space-x-2 text-[11px] text-slate-300 self-end sm:self-auto">
+          <span class="px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700">
+            🇮🇩 Total: <strong id="modal-prov-total-count" class="text-cyan-300">38</strong> Provinsi
+          </span>
+          <button id="btn-reset-province-filter" class="px-2.5 py-1 rounded-lg bg-cyan-950 border border-cyan-700/60 text-cyan-300 hover:text-white transition font-semibold">
+            Tampilkan Semua (Nasional)
+          </button>
+        </div>
+      </div>
+
+      <!-- Scrollable Grid of Provinces -->
+      <div id="province-cards-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 overflow-y-auto pr-1 flex-1 min-h-[300px]">
+        <!-- Cards rendered dynamically via JS -->
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 shrink-0">
+        <span class="text-[11px] flex items-center">
+          <i data-lucide="info" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i>
+          Dihitung otomatis dalam jendela 48 jam (Kemarin & Hari Ini).
+        </span>
+        <button id="btn-close-provinces-footer" class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">
+          Tutup
+        </button>
       </div>
 
     </div>

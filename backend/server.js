@@ -55,6 +55,16 @@ function rowToGeoJSONFeature(row) {
     }
   }
 
+  let provinsi = 'Nasional';
+  if (row.provinsi) {
+    provinsi = row.provinsi;
+  } else if (row.lokasi_nama) {
+    const match = row.lokasi_nama.match(/\((.*?)\)/);
+    if (match && match[1]) {
+      provinsi = match[1].trim();
+    }
+  }
+
   return {
     type: 'Feature',
     id: Number(row.id),
@@ -66,6 +76,7 @@ function rowToGeoJSONFeature(row) {
       label: row.label,
       probabilitas: Number(row.probabilitas),
       lokasi_nama: row.lokasi_nama,
+      provinsi: provinsi,
       url: row.url,
       referensi_urls: row.referensi_urls || [],
       status_tayang: Boolean(row.status_tayang),
@@ -121,6 +132,9 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) FILTER (WHERE sumber = 'tiktok') AS tiktok,
         COUNT(*) FILTER (WHERE sumber = 'instagram') AS instagram,
         COUNT(*) FILTER (WHERE sumber = 'berita' OR sumber = 'turnbackhoax') AS berita,
+        COUNT(*) FILTER (WHERE sumber = 'mastodon') AS mastodon,
+        COUNT(*) FILTER (WHERE sumber = 'bluesky') AS bluesky,
+        COUNT(*) FILTER (WHERE sumber = 'reddit') AS reddit,
         COUNT(*) FILTER (WHERE dikoreksi = TRUE) AS dikoreksi,
         COUNT(*) FILTER (WHERE dibuat_pada >= CURRENT_DATE) AS hari_ini_count,
         COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= CURRENT_DATE - INTERVAL '1 day') AS kemarin_count
@@ -204,7 +218,10 @@ app.get('/api/stats', async (req, res) => {
         twitter: parseInt(active.twitter || 0, 10),
         tiktok: parseInt(active.tiktok || 0, 10),
         instagram: parseInt(active.instagram || 0, 10),
-        berita: parseInt(active.berita || 0, 10)
+        berita: parseInt(active.berita || 0, 10),
+        mastodon: parseInt(active.mastodon || 0, 10),
+        bluesky: parseInt(active.bluesky || 0, 10),
+        reddit: parseInt(active.reddit || 0, 10)
       },
       dikoreksi: parseInt(active.dikoreksi || 0, 10),
       top_regions: topRegionsRes.rows.map(r => ({
@@ -223,6 +240,37 @@ app.get('/api/stats', async (req, res) => {
   } catch (err) {
     console.error('[!] Error GET /api/stats:', err);
     res.status(500).json({ error: 'Gagal mengambil statistik' });
+  }
+});
+
+// 2b. Statistik dan Sebaran Berita Viral Tiap Provinsi (Jendela 48 Jam)
+app.get('/api/provinces', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        COALESCE(
+          NULLIF(substring(lokasi_nama from '\\((.*)\\)'), ''),
+          (SELECT g.provinsi FROM gazetteer g WHERE lower(g.nama) = lower(split_part(st.lokasi_nama, ' (', 1)) LIMIT 1),
+          'Nasional'
+        ) AS provinsi,
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE label = 'hoaks')::int AS hoaks,
+        COUNT(*) FILTER (WHERE label = 'fakta')::int AS fakta,
+        COUNT(*) FILTER (WHERE label = 'negatif')::int AS negatif,
+        ROUND(AVG(ST_Y(geom))::numeric, 4)::float AS center_lat,
+        ROUND(AVG(ST_X(geom))::numeric, 4)::float AS center_lon
+      FROM social_threats st
+      WHERE status_tayang = TRUE 
+        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
+        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+      GROUP BY 1
+      ORDER BY total DESC;
+    `;
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[!] Error GET /api/provinces:', err);
+    res.status(500).json({ error: 'Gagal mengambil data provinsi' });
   }
 });
 
@@ -475,6 +523,7 @@ app.get('/api/cities', async (req, res) => {
 // ==========================================
 
 const SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'scrape_viral_daily.py');
+const SOCIAL_SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'free_social_scraper.py');
 
 // Eksekusi scraper berita viral via Python
 function executeDailyViralIngest() {
@@ -522,6 +571,52 @@ function executeDailyViralIngest() {
   });
 }
 
+// Eksekusi scraper media sosial gratis (Mastodon / Bluesky / Reddit) via Python
+function executeFreeSocialIngest() {
+  return new Promise((resolve) => {
+    execFile(PYTHON_EXEC, [SOCIAL_SCRAPER_SCRIPT], { cwd: ROOT_DIR }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('[!] Error eksekusi scraper media sosial:', stderr || error.message);
+        return resolve({ status: 'error', error: stderr || error.message });
+      }
+      try {
+        const match = stdout.match(/\{[\s\S]*"status"[\s\S]*\}/);
+        const parsed = match ? JSON.parse(match[0]) : { status: 'success', raw: stdout };
+
+        // Jika ada postingan media sosial baru, langsung siarkan ke peta secara realtime via WebSocket!
+        if (parsed.new_items && parsed.new_items.length > 0) {
+          console.log(`[⚡ Social Stream] Menyiarkan +${parsed.new_items.length} postingan media sosial baru ke peta Leaflet...`);
+          for (const item of parsed.new_items) {
+            const feature = {
+              type: 'Feature',
+              id: item.id,
+              geometry: item.geom,
+              properties: {
+                id: item.id,
+                sumber: item.sumber,
+                teks: item.teks,
+                label: item.label,
+                probabilitas: item.probabilitas,
+                lokasi_nama: item.lokasi_nama,
+                url: item.url,
+                referensi_urls: item.referensi_urls || [],
+                status_tayang: true,
+                dikoreksi: false,
+                dibuat_pada: item.dibuat_pada
+              }
+            };
+            io.emit('new_threat', feature);
+          }
+        }
+
+        resolve(parsed);
+      } catch (e) {
+        resolve({ status: 'completed', output: stdout });
+      }
+    });
+  });
+}
+
 // 1. Endpoint Sinkronisasi Berita Viral Manual (On-Demand)
 app.post('/api/viral/sync', async (req, res) => {
   try {
@@ -536,6 +631,23 @@ app.post('/api/viral/sync', async (req, res) => {
     res.json({ success: true, message: 'Sinkronisasi berita viral harian berhasil', data: ingestResult });
   } catch (err) {
     res.status(500).json({ error: 'Gagal menjalankan sinkronisasi berita viral', details: err.message });
+  }
+});
+
+// 1b. Endpoint Sinkronisasi Media Sosial Gratis (Mastodon / Bluesky / Reddit)
+app.post('/api/social/sync', async (req, res) => {
+  try {
+    const ingestResult = await executeFreeSocialIngest();
+
+    // Broadcast pembaruan ke seluruh klien via WebSocket
+    io.emit('social_synced', {
+      timestamp: new Date().toISOString(),
+      result: ingestResult
+    });
+
+    res.json({ success: true, message: 'Sinkronisasi media sosial gratis berhasil', data: ingestResult });
+  } catch (err) {
+    res.status(500).json({ error: 'Gagal menjalankan sinkronisasi media sosial', details: err.message });
   }
 });
 
@@ -621,6 +733,22 @@ async function runHourlyViralIngestWorker() {
       });
     } else {
       console.log(`[✓ Ingest Selesai] Pengecekan selesai. Seluruh data tetap sinkron.`);
+    }
+
+    // 3. Tarik media sosial gratis (Mastodon, Bluesky, Reddit) tanpa API key
+    try {
+      const socialResult = await executeFreeSocialIngest();
+      if (socialResult && socialResult.inserted > 0) {
+        console.log(`[⚡ Social Auto Ingest] +${socialResult.inserted} postingan media sosial baru disiarkan ke peta Leaflet!`);
+        io.emit('social_synced', {
+          timestamp: new Date().toISOString(),
+          result: socialResult
+        });
+      } else {
+        console.log(`[✓ Social Ingest Selesai] Tidak ada postingan media sosial baru.`);
+      }
+    } catch (socialErr) {
+      console.error('[!] Error pada social ingest worker:', socialErr.message);
     }
   } catch (err) {
     console.error('[!] Error pada hourly ingest worker:', err.message);
