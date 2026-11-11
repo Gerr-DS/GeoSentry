@@ -12,6 +12,15 @@ import time
 import json
 from datetime import datetime, timezone, timedelta
 import feedparser
+import socket
+
+# Paksa resolusi IPv4 untuk menghindari delay SYN_SENT pada jaringan yang tidak memiliki rute IPv6
+orig_getaddrinfo = socket.getaddrinfo
+def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = getaddrinfo_ipv4
+socket.setdefaulttimeout(8)
+
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import psycopg

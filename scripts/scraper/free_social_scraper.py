@@ -14,6 +14,15 @@ import os
 import sys
 import json
 import time
+import socket
+
+# Paksa resolusi IPv4 untuk menghindari delay SYN_SENT pada jaringan yang tidak memiliki rute IPv6
+orig_getaddrinfo = socket.getaddrinfo
+def getaddrinfo_ipv4(host, port, family=0, type=0, proto=0, flags=0):
+    return orig_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+socket.getaddrinfo = getaddrinfo_ipv4
+socket.setdefaulttimeout(6)
+
 import argparse
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -38,7 +47,7 @@ HTTP_HEADERS = {
     "User-Agent": "GeoSentry/1.0 (free social monitor; local research dashboard)",
     "Accept": "application/json",
 }
-TIMEOUT = 15
+TIMEOUT = 5
 
 # Sumber gratis tanpa API key
 MASTODON_INSTANCES = ["mastodon.social", "mastodon.kodesumber.com"]
