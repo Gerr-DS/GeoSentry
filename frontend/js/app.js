@@ -655,11 +655,95 @@ async function runNewsAnalysis(saveToMap = true) {
   const text = textInput ? textInput.value.trim() : '';
 
   if (!text) {
-    alert('Silakan masukkan teks narasi atau judul berita terlebih dahulu!');
+    alert('Silakan masukkan teks narasi atau link media sosial terlebih dahulu!');
     return;
   }
 
   const btnPlotText = document.getElementById('btn-plot-text');
+
+  // Deteksi jika input adalah URL Media Sosial (TikTok, Instagram, YouTube, X, dll)
+  const isUrl = /^https?:\/\//i.test(text);
+  if (isUrl) {
+    if (btnPlotText) btnPlotText.innerText = '⚡ Menarik Data Medsos via yt-dlp & Cek Hoaks...';
+    try {
+      const res = await fetch('/api/social/inspect-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: text, save_to_map: saveToMap })
+      });
+      const respData = await res.json();
+      if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
+
+      if (respData.success && respData.data) {
+        const item = respData.data;
+        const resultBox = document.getElementById('checker-result-box');
+        if (resultBox) resultBox.classList.remove('hidden');
+
+        // Update Badge Klasifikasi
+        const badge = document.getElementById('res-badge');
+        if (badge) {
+          if (item.label === 'hoaks') {
+            badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-red-950 text-red-400 border border-red-800';
+            badge.innerText = `🔴 TERDETEKSI HOAKS (${item.sumber.toUpperCase()})`;
+          } else if (item.label === 'fakta') {
+            badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-blue-950 text-blue-400 border border-blue-800';
+            badge.innerText = `🔵 FAKTA / BERITA VALID (${item.sumber.toUpperCase()})`;
+          } else {
+            badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-950 text-amber-400 border border-amber-800';
+            badge.innerText = `🟡 SENTIMEN NEGATIF (${item.sumber.toUpperCase()})`;
+          }
+        }
+
+        // Update Confidence Bar
+        const confPercent = Math.round(item.probabilitas * 100);
+        const confEl = document.getElementById('res-confidence');
+        if (confEl) confEl.innerText = `${confPercent}%`;
+        const bar = document.getElementById('res-prob-bar');
+        if (bar) {
+          bar.style.width = `${confPercent}%`;
+          bar.className = `h-2 rounded-full transition-all duration-500 ${item.label === 'hoaks' ? 'bg-red-500' : (item.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}`;
+        }
+
+        // Update Origin
+        const originEl = document.getElementById('res-origin');
+        if (originEl) originEl.innerText = `${item.lokasi_nama || 'Nasional'} (Prov: ${item.provinsi || 'Nasional'})`;
+
+        // Update Media Info
+        const spreadersList = document.getElementById('res-spreaders-list');
+        if (spreadersList) {
+          spreadersList.innerHTML = `
+            <span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-mono text-[10px]">
+              📱 Engine: ${item.engine_used} • ${item.sumber.toUpperCase()}
+            </span>
+            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono text-[10px] truncate max-w-xs block mt-1">
+              "${item.title || item.teks.slice(0, 50)}"
+            </span>
+          `;
+        }
+
+        // Link Rujukan Berita Terkait
+        const newsLinkEl = document.getElementById('res-news-link');
+        const newsLinkLabel = document.getElementById('res-news-link-label');
+        if (newsLinkEl && item.url) {
+          newsLinkEl.href = item.url;
+          if (newsLinkLabel) newsLinkLabel.innerText = `Buka Postingan ${item.sumber.toUpperCase()} ↗`;
+        }
+
+        // Animasi peta flyTo
+        if (item.lat && item.lon) {
+          AppState.map.flyTo([item.lat, item.lon], 8, { duration: 1.5 });
+        }
+
+        showToast(`[yt-dlp] Postingan ${item.sumber.toUpperCase()} berhasil dianalisis: ${item.label.toUpperCase()} (${item.lokasi_nama})`);
+        fetchStats();
+        return;
+      }
+    } catch (err) {
+      console.error('[!] Error inspect social url:', err);
+      if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
+    }
+  }
+
   if (btnPlotText) btnPlotText.innerText = '⚡ AI Sedang Menganalisis & Melacak Sebaran...';
 
   try {

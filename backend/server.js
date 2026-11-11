@@ -524,6 +524,7 @@ app.get('/api/cities', async (req, res) => {
 
 const SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'scrape_viral_daily.py');
 const SOCIAL_SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'free_social_scraper.py');
+const YTDLP_SCRAPER_SCRIPT = path.join(ROOT_DIR, 'scripts', 'scraper', 'ytdlp_social_scraper.py');
 
 // Eksekusi scraper berita viral via Python
 function executeDailyViralIngest() {
@@ -649,6 +650,68 @@ app.post('/api/social/sync', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Gagal menjalankan sinkronisasi media sosial', details: err.message });
   }
+});
+
+// 1c. Endpoint Inspeksi & Verifikasi URL Medsos via yt-dlp (TikTok, Instagram, YouTube, Twitter)
+app.post('/api/social/inspect-url', async (req, res) => {
+  const { url, text, save_to_map } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'URL media sosial tidak boleh kosong' });
+  }
+
+  const args = [YTDLP_SCRAPER_SCRIPT, '--url', url];
+  if (text) {
+    args.push('--text', text);
+  }
+  if (save_to_map === false) {
+    args.push('--no-save');
+  }
+
+  execFile(PYTHON_EXEC, args, { cwd: ROOT_DIR }, (error, stdout, stderr) => {
+    if (error && !stdout) {
+      console.error('[!] Error eksekusi ytdlp social scraper:', stderr || error.message);
+      return res.status(500).json({ error: 'Gagal menganalisis URL media sosial', details: stderr || error.message });
+    }
+
+    try {
+      const match = stdout.match(/\{[\s\S]*"status"[\s\S]*\}/);
+      if (!match) {
+        return res.status(500).json({ error: 'Format output scraper tidak valid', raw: stdout });
+      }
+      const data = JSON.parse(match[0]);
+
+      // Jika disimpan ke peta dan ada ID, siarkan via WebSocket ke Leaflet!
+      if (data.id && save_to_map !== false) {
+        const feature = {
+          type: 'Feature',
+          id: data.id,
+          geometry: {
+            type: 'Point',
+            coordinates: [data.lon, data.lat]
+          },
+          properties: {
+            id: data.id,
+            sumber: data.sumber,
+            teks: data.teks,
+            label: data.label,
+            probabilitas: data.probabilitas,
+            lokasi_nama: data.lokasi_nama,
+            provinsi: data.provinsi,
+            url: data.url,
+            referensi_urls: data.referensi_urls || [],
+            status_tayang: true,
+            dikoreksi: false,
+            dibuat_pada: data.dibuat_pada
+          }
+        };
+        io.emit('new_threat', feature);
+      }
+
+      res.json({ success: true, data: data });
+    } catch (parseErr) {
+      res.status(500).json({ error: 'Gagal parsing respons scraper', details: parseErr.message, raw: stdout });
+    }
+  });
 });
 
 // 2. Info Status Jendela Pemantauan 48 Jam
