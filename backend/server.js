@@ -90,7 +90,7 @@ function rowToGeoJSONFeature(row) {
 // API ROUTES
 // ==========================================
 
-// 1. Ambil ancaman aktif (status_tayang = TRUE) format GeoJSON dalam jendela rolling 48 jam (Hari Ini & Kemarin)
+// 1. Ambil ancaman aktif (status_tayang = TRUE) format GeoJSON dalam jendela rolling 24 jam terakhir
 app.get('/api/threats', async (req, res) => {
   try {
     const query = `
@@ -100,8 +100,7 @@ app.get('/api/threats', async (req, res) => {
         lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada
       FROM social_threats
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
       ORDER BY dibuat_pada DESC, id DESC;
     `;
     const result = await pool.query(query);
@@ -118,10 +117,10 @@ app.get('/api/threats', async (req, res) => {
   }
 });
 
-// 2. Statistik agregat dasbor (Jendela 48 Jam: Hari Ini & Kemarin)
+// 2. Statistik agregat dasbor (Jendela Rolling 24 Jam Terakhir)
 app.get('/api/stats', async (req, res) => {
   try {
-    // Total aktif dan rincian label aktif dalam jendela 48 jam
+    // Total aktif dan rincian label aktif dalam jendela 24 jam
     const activeStatsQuery = `
       SELECT 
         COUNT(*) AS total_active,
@@ -137,11 +136,10 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) FILTER (WHERE sumber = 'reddit') AS reddit,
         COUNT(*) FILTER (WHERE dikoreksi = TRUE) AS dikoreksi,
         COUNT(*) FILTER (WHERE dibuat_pada >= CURRENT_DATE) AS hari_ini_count,
-        COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= CURRENT_DATE - INTERVAL '1 day') AS kemarin_count
+        COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= NOW() - INTERVAL '24 hours') AS kemarin_count
       FROM social_threats
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day');
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours');
     `;
     const activeRes = await pool.query(activeStatsQuery);
     const active = activeRes.rows[0];
@@ -150,7 +148,7 @@ app.get('/api/stats', async (req, res) => {
     const bufferCountRes = await pool.query('SELECT COUNT(*) AS total_buffer FROM social_threats;');
     const totalBuffer = parseInt(bufferCountRes.rows[0].total_buffer, 10);
 
-    // Top 5 lokasi persebaran aktif dalam jendela 48 jam beserta breakdown kategori faktual
+    // Top 5 lokasi persebaran aktif dalam jendela 24 jam beserta breakdown kategori faktual
     const topRegionsQuery = `
       SELECT 
         split_part(lokasi_nama, ' (', 1) AS lokasi_nama, 
@@ -160,8 +158,7 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) FILTER (WHERE label = 'negatif') AS negatif
       FROM social_threats
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
       GROUP BY split_part(lokasi_nama, ' (', 1)
       ORDER BY count DESC
@@ -174,8 +171,7 @@ app.get('/api/stats', async (req, res) => {
       SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
       FROM social_threats 
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
         AND label = 'hoaks'
       GROUP BY split_part(lokasi_nama, ' (', 1)
@@ -186,8 +182,7 @@ app.get('/api/stats', async (req, res) => {
       SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
       FROM social_threats 
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
         AND label = 'fakta'
       GROUP BY split_part(lokasi_nama, ' (', 1)
@@ -198,8 +193,7 @@ app.get('/api/stats', async (req, res) => {
       SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
       FROM social_threats 
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
         AND label = 'negatif'
       GROUP BY split_part(lokasi_nama, ' (', 1)
@@ -243,7 +237,7 @@ app.get('/api/stats', async (req, res) => {
   }
 });
 
-// 2b. Statistik dan Sebaran Berita Viral Tiap Provinsi (Jendela 48 Jam)
+// 2b. Statistik dan Sebaran Berita Viral Tiap Provinsi (Jendela 24 Jam)
 app.get('/api/provinces', async (req, res) => {
   try {
     const query = `
@@ -261,8 +255,7 @@ app.get('/api/provinces', async (req, res) => {
         ROUND(AVG(ST_X(geom))::numeric, 4)::float AS center_lon
       FROM social_threats st
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day')
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
       GROUP BY 1
       ORDER BY total DESC;
     `;
@@ -714,7 +707,7 @@ app.post('/api/social/inspect-url', async (req, res) => {
   });
 });
 
-// 2. Info Status Jendela Pemantauan 48 Jam
+// 2. Info Status Jendela Pemantauan 24 Jam
 app.get('/api/viral/info', async (req, res) => {
   try {
     const today = new Date().toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', day: 'numeric', month: 'long', year: 'numeric' });
@@ -729,17 +722,16 @@ app.get('/api/viral/info', async (req, res) => {
 
     const activeCountRes = await pool.query(`
       SELECT 
-        COUNT(*) AS total_active_48h,
+        COUNT(*) AS total_active_24h,
         COUNT(*) FILTER (WHERE dibuat_pada >= CURRENT_DATE) AS count_today,
-        COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= CURRENT_DATE - INTERVAL '1 day') AS count_yesterday
+        COUNT(*) FILTER (WHERE dibuat_pada < CURRENT_DATE AND dibuat_pada >= NOW() - INTERVAL '24 hours') AS count_yesterday
       FROM social_threats 
       WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-        AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day');
+        AND dibuat_pada >= (NOW() - INTERVAL '24 hours');
     `);
 
     res.json({
-      window_range: `Jendela 48 Jam: Kemarin (${yesterday}) & Hari Ini (${today})`,
+      window_range: `Jendela Rolling 24 Jam Terakhir`,
       hari_ini: today,
       kemarin: yesterday,
       next_rollover: 'Pukul 00:00 WIB',
@@ -756,20 +748,20 @@ app.get('/api/viral/info', async (req, res) => {
 // ==========================================
 // Memeriksa berita viral terbaru setiap jam secara otonom di latar belakang.
 // Bila ada berita viral baru, berita otomatis bertambah dan dipetakan.
-// Data yang sudah lewat >2 hari otomatis disembunyikan (hilang dari maps).
+// Data yang sudah lewat >24 jam otomatis disembunyikan (hilang dari maps).
 
-async function purgeThreatsOlderThan2Days() {
+async function purgeThreatsOlderThan24Hours() {
   try {
     const purgeQuery = `
       UPDATE social_threats 
       SET status_tayang = FALSE 
       WHERE status_tayang = TRUE 
-        AND dibuat_pada < (CURRENT_DATE - INTERVAL '1 day');
+        AND dibuat_pada < (NOW() - INTERVAL '24 hours');
     `;
     const res = await pool.query(purgeQuery);
     if (res.rowCount > 0) {
-      console.log(`[🧹 Purge Otomatis] ${res.rowCount} berita yang lewat >2 hari otomatis disembunyikan dari peta.`);
-      io.emit('threats_purged', { count: res.rowCount, message: 'Data yang telah lewat >2 hari otomatis dihilangkan dari peta.' });
+      console.log(`[🧹 Purge Otomatis] ${res.rowCount} berita yang lewat >24 jam otomatis disembunyikan dari peta.`);
+      io.emit('threats_purged', { count: res.rowCount, message: 'Data yang telah lewat >24 jam otomatis dihilangkan dari peta.' });
     }
   } catch (err) {
     console.error('[!] Error purge data kadaluarsa:', err.message);
@@ -783,8 +775,8 @@ async function runHourlyViralIngestWorker() {
   try {
     console.log(`\n[🕒 Hourly Ingest Worker] Menjalankan pengecekan berkala berita viral terbaru...`);
     
-    // 1. Bersihkan berita yang sudah lewat > 2 hari agar hilang dari peta
-    await purgeThreatsOlderThan2Days();
+    // 1. Bersihkan berita yang sudah lewat > 24 jam agar hilang dari peta
+    await purgeThreatsOlderThan24Hours();
 
     // 2. Tarik berita viral terkini (Google News, TurnBackHoax, Antara, CNBC, TikTok, Instagram)
     const result = await executeDailyViralIngest();
@@ -826,14 +818,14 @@ setTimeout(runHourlyViralIngestWorker, 3000);
 // Jalankan otomatis setiap 1 jam (3600000 ms) terus menerus
 setInterval(runHourlyViralIngestWorker, 3600000);
 
-// Evaluasi pembersihan data >2 hari setiap 5 menit
-setInterval(purgeThreatsOlderThan2Days, 300000);
+// Evaluasi pembersihan data >24 jam setiap 5 menit
+setInterval(purgeThreatsOlderThan24Hours, 300000);
 
 // ==========================================
 // AUTOMATIC MIDNIGHT ROLLOVER SCHEDULER (00:00 WIB)
 // ==========================================
 // Mendeteksi pergantian tanggal otomatis pada pukul 00:00 WIB,
-// memajukan jendela pantau 48 jam, dan otomatis mengambil berita viral baru.
+// memajukan jendela pantau 24 jam, dan otomatis mengambil berita viral baru.
 
 let currentWIBDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // YYYY-MM-DD
 
@@ -843,7 +835,7 @@ setInterval(async () => {
     console.log(`\n[🔔] ======================================================`);
     console.log(`[🔔] PUKUL 00:00 WIB TERCAPAI: Pergantian Hari Terdeteksi!`);
     console.log(`[🔔] Tanggal Baru : ${checkDate} (Sebelumnya: ${currentWIBDate})`);
-    console.log(`[🔔] Menjalankan Rollover Jendela 48 Jam & Sinkronisasi Berita...`);
+    console.log(`[🔔] Menjalankan Rollover Jendela 24 Jam & Sinkronisasi Berita...`);
     console.log(`[🔔] ======================================================\n`);
     
     currentWIBDate = checkDate;
@@ -855,7 +847,7 @@ setInterval(async () => {
       // 2. Siarkan pergantian tanggal ke semua klien aktif agar UI & peta langsung terbarui
       io.emit('day_rollover', {
         new_date: checkDate,
-        message: 'Pukul 00:00 WIB tercapai: Jendela pemantauan otomatis bergeser ke hari ini dan kemarin.'
+        message: 'Pukul 00:00 WIB tercapai: Jendela pemantauan otomatis bergulir ke 24 jam terakhir.'
       });
     } catch (e) {
       console.error('[!] Gagal menjalankan ingest otomatis tengah malam:', e);
@@ -872,7 +864,7 @@ io.on('connection', (socket) => {
 
   // Kirim info status jendela berita viral saat klien baru tersambung
   socket.emit('viral_engine_ready', {
-    message: 'Mesin Pemantauan Berita Viral 48 Jam Aktif',
+    message: 'Mesin Pemantauan Berita Viral 24 Jam Aktif',
     rollover_schedule: 'Setiap 00:00 WIB'
   });
 

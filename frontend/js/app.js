@@ -955,7 +955,7 @@ function initWebSocket() {
 
   // Event saat pergantian hari (00:00 WIB Rollover)
   AppState.socket.on('day_rollover', (data) => {
-    console.log('[🔔] Pukul 00:00 WIB: Rollover jendela 48 jam:', data);
+    console.log('[🔔] Pukul 00:00 WIB: Rollover jendela 24 jam:', data);
     // Bersihkan marker lama
     AppState.threats.clear();
     AppState.markers.forEach(m => AppState.map.removeLayer(m));
@@ -965,16 +965,16 @@ function initWebSocket() {
     fetchInitialThreats();
     fetchStats();
     loadProvinces();
-    showToast(data.message || 'Pukul 00:00 WIB: Jendela pemantauan bergeser ke hari ini dan kemarin.');
+    showToast(data.message || 'Pukul 00:00 WIB: Jendela pemantauan bergulir ke 24 jam terakhir.');
   });
 
-  // Event saat data kadaluarsa (>2 hari) dibersihkan dari server
+  // Event saat data kadaluarsa (>24 jam) dibersihkan dari server
   AppState.socket.on('threats_purged', (data) => {
-    console.log('[🧹] Data kadaluarsa >2 hari otomatis disingkirkan dari peta:', data);
+    console.log('[🧹] Data kadaluarsa >24 jam otomatis disingkirkan dari peta:', data);
     fetchInitialThreats();
     fetchStats();
     loadProvinces();
-    showToast(`Pembersihan otomatis: ${data.count || 0} berita yang lewat >2 hari dihilangkan dari peta.`);
+    showToast(`Pembersihan otomatis: ${data.count || 0} berita yang lewat >24 jam dihilangkan dari peta.`);
   });
 
   AppState.socket.on('viral_engine_ready', (info) => {
@@ -982,9 +982,9 @@ function initWebSocket() {
   });
 }
 
-// Pemeriksa kadaluarsa klien: memastikan bila ada berita > 2 hari langsung hilang dari peta
+// Pemeriksa kadaluarsa klien: memastikan bila ada berita > 24 jam langsung hilang dari peta
 function purgeExpiredThreatsClient() {
-  const cutoff = Date.now() - (48 * 60 * 60 * 1000); // 48 jam / 2 hari
+  const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 jam
   let purgedCount = 0;
   AppState.threats.forEach((feature, id) => {
     const time = new Date(feature.properties.dibuat_pada).getTime();
@@ -1001,7 +1001,7 @@ function purgeExpiredThreatsClient() {
     }
   });
   if (purgedCount > 0) {
-    console.log(`[🧹 Purge Klien] ${purgedCount} titik berita >2 hari otomatis dihilangkan dari peta.`);
+    console.log(`[🧹 Purge Klien] ${purgedCount} titik berita >24 jam otomatis dihilangkan dari peta.`);
     updateHeatmapData();
     renderFeedList();
     fetchStats();
@@ -1036,7 +1036,7 @@ async function fetchStats() {
   }
 }
 
-// Memuat Direktori 38 Provinsi beserta statistik berita viral 48 jam terakhir
+// Memuat Direktori 38 Provinsi beserta statistik berita viral 24 jam terakhir
 async function loadProvinces() {
   try {
     const res = await fetch('/api/provinces');

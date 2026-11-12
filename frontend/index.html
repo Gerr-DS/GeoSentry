@@ -208,7 +208,7 @@
           <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center">
             <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 mr-1.5 text-emerald-400"></i> Wilayah Terpanas
           </span>
-          <span class="text-[9px] font-mono text-cyan-400 font-semibold uppercase">Faktual (48 Jam)</span>
+          <span class="text-[9px] font-mono text-cyan-400 font-semibold uppercase">Faktual (24 Jam)</span>
         </div>
 
         <!-- 3 Insight Faktual Kategori (Wilayah Terbanyak Hoaks, Fakta, Negatif) -->
@@ -298,11 +298,11 @@
                   Radar Berita Viral Real-Time
                 </span>
                 <span id="window-status-badge" class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700/60 uppercase">
-                  Jendela 48 Jam
+                  Jendela 24 Jam
                 </span>
               </div>
               <p class="text-[11px] text-slate-300 mt-0.5">
-                <span id="window-range-text">Hari Ini & Kemarin</span> • Siklus: <span class="font-semibold text-emerald-300">Cek Tiap Jam</span> • <span class="font-semibold text-rose-300">&gt;2 Hari Otomatis Hilang</span>
+                <span id="window-range-text">Rolling 24 Jam Terakhir</span> • Siklus: <span class="font-semibold text-emerald-300">Cek Tiap Jam</span> • <span class="font-semibold text-rose-300">&gt;24 Jam Otomatis Hilang</span>
               </p>
             </div>
           </div>
@@ -462,7 +462,7 @@
   </div>
 
   <!-- ============================================== -->
-  <!-- MODAL: JELAJAH 38 PROVINSI INDONESIA (JENDELA 48 JAM) -->
+  <!-- MODAL: JELAJAH 38 PROVINSI INDONESIA (JENDELA 24 JAM) -->
   <!-- ============================================== -->
   <div id="modal-provinces" class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop hidden">
     <div class="glass-panel w-full max-w-4xl max-h-[88vh] rounded-2xl shadow-2xl border border-cyan-500/40 p-5 flex flex-col space-y-4">
@@ -477,7 +477,7 @@
             <h3 class="text-sm font-bold text-slate-100 flex items-center space-x-2">
               <span>Direktori Berita Viral 38 Provinsi Indonesia</span>
               <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700/60 uppercase">
-                48 Jam Terakhir
+                24 Jam Terakhir
               </span>
             </h3>
             <p class="text-[11px] text-slate-400">Pilih provinsi untuk memusatkan peta dan menyaring radar berita viral secara instan</p>
@@ -520,7 +520,7 @@
       <div class="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 shrink-0">
         <span class="text-[11px] flex items-center">
           <i data-lucide="info" class="w-3.5 h-3.5 mr-1 text-cyan-400"></i>
-          Dihitung otomatis dalam jendela 48 jam (Kemarin & Hari Ini).
+          Dihitung otomatis dalam jendela rolling 24 jam terakhir.
         </span>
         <button id="btn-close-provinces-footer" class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold">
           Tutup

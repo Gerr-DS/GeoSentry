@@ -272,7 +272,7 @@ def fetch_live_viral_rss():
     """Mengambil berita viral terkini dari Google News, TurnBackHoax, Antara, dan CNBC."""
     articles = []
     now = datetime.now(timezone.utc)
-    cutoff_yesterday = now - timedelta(days=2) # Rolling 48 jam
+    cutoff_24h = now - timedelta(hours=24) # Rolling 24 jam
 
     for src in RSS_SOURCES:
         try:
@@ -300,12 +300,12 @@ def fetch_live_viral_rss():
                     published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), tz=timezone.utc)
                 
                 # Jika tanggal tidak tercantum (seperti beberapa format TurnBackHoax),
-                # beri timestamp hari ini atau kemarin
+                # beri timestamp sekarang
                 if not published_dt:
                     published_dt = now
 
-                # Pastikan berada dalam jendela 48 jam terakhir
-                if published_dt < cutoff_yesterday:
+                # Pastikan berada dalam jendela 24 jam terakhir
+                if published_dt < cutoff_24h:
                     continue
 
                 combined_text = f"{title}. {summary}" if summary else title
@@ -483,17 +483,16 @@ def sync_viral_threats_to_db():
 
             conn.commit()
 
-            # Verifikasi jumlah berita dalam jendela 48 jam
+            # Verifikasi jumlah berita dalam jendela 24 jam
             cur.execute("""
                 SELECT 
-                    COUNT(*) as total_48h,
+                    COUNT(*) as total_24h,
                     COUNT(*) FILTER (WHERE label = 'hoaks') as hoaks,
                     COUNT(*) FILTER (WHERE label = 'fakta') as fakta,
                     COUNT(*) FILTER (WHERE label = 'negatif') as negatif
                 FROM social_threats
                 WHERE status_tayang = TRUE 
-                  AND dibuat_pada >= (CURRENT_DATE - INTERVAL '1 day')
-                  AND dibuat_pada < (CURRENT_DATE + INTERVAL '1 day');
+                  AND dibuat_pada >= (NOW() - INTERVAL '24 hours');
             """)
             stats = cur.fetchone()
 
@@ -502,13 +501,13 @@ def sync_viral_threats_to_db():
         "fetched": len(live_articles),
         "inserted": inserted_count,
         "updated": updated_count,
-        "total_active_48h": stats[0],
+        "total_active_24h": stats[0],
         "hoaks": stats[1],
         "fakta": stats[2],
         "negatif": stats[3],
         "new_items": newly_inserted_items
     }
-    print(f"[✓] Sinkronisasi Selesai: +{inserted_count} baru, {updated_count} diperbarui. Total 48 Jam Aktif: {stats[0]}")
+    print(f"[✓] Sinkronisasi Selesai: +{inserted_count} baru, {updated_count} diperbarui. Total 24 Jam Aktif: {stats[0]}")
     return result
 
 
