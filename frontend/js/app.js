@@ -350,7 +350,17 @@ function isFeatureMatchFilter(feature) {
     const provLower = provinsi.toLowerCase().trim();
     const pProv = (p.provinsi || '').toLowerCase().trim();
     const pLokasi = (p.lokasi_nama || '').toLowerCase().trim();
-    matchProv = pProv === provLower || pLokasi.includes(provLower);
+
+    const isJakartaFilter = provLower === 'dki jakarta' || provLower === 'jakarta';
+    const isJakartaThreat = pProv === 'dki jakarta' || pLokasi.includes('jakarta') || pLokasi.includes('kepulauan seribu');
+
+    if (isJakartaFilter) {
+      matchProv = isJakartaThreat;
+    } else {
+      matchProv = pProv === provLower || 
+                  pLokasi.includes(provLower) ||
+                  (pProv && provLower.includes(pProv) && pProv !== 'nasional');
+    }
   }
 
   let matchSearch = true;
@@ -730,7 +740,8 @@ function renderFeedList() {
     return;
   }
 
-  filtered.slice(0, 50).forEach(feat => {
+  const maxRender = (AppState.currentFilter.provinsi && AppState.currentFilter.provinsi !== 'all') ? 200 : 50;
+  filtered.slice(0, maxRender).forEach(feat => {
     prependThreatToFeed(feat.properties, false);
   });
   updateFeedCountBadge();

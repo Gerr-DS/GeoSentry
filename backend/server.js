@@ -62,6 +62,8 @@ function rowToGeoJSONFeature(row) {
     const match = row.lokasi_nama.match(/\((.*?)\)/);
     if (match && match[1]) {
       provinsi = match[1].trim();
+    } else if (row.lokasi_nama.toLowerCase().includes('jakarta')) {
+      provinsi = 'DKI Jakarta';
     }
   }
 
@@ -95,13 +97,19 @@ app.get('/api/threats', async (req, res) => {
   try {
     const query = `
       SELECT 
-        id, sumber, teks, label, probabilitas, 
-        ST_AsGeoJSON(geom) AS geojson, 
-        lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada
-      FROM social_threats
-      WHERE status_tayang = TRUE 
-        AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
-      ORDER BY dibuat_pada DESC, id DESC;
+        st.id, st.sumber, st.teks, st.label, st.probabilitas, 
+        ST_AsGeoJSON(st.geom) AS geojson, 
+        st.lokasi_nama,
+        COALESCE(
+          NULLIF(substring(st.lokasi_nama from '\\((.*)\\)'), ''),
+          (SELECT g.provinsi FROM gazetteer g WHERE lower(g.nama) = lower(split_part(st.lokasi_nama, ' (', 1)) LIMIT 1),
+          'Nasional'
+        ) AS provinsi,
+        st.url, st.referensi_urls, st.status_tayang, st.dikoreksi, st.dibuat_pada
+      FROM social_threats st
+      WHERE st.status_tayang = TRUE 
+        AND st.dibuat_pada >= (NOW() - INTERVAL '24 hours')
+      ORDER BY st.dibuat_pada DESC, st.id DESC;
     `;
     const result = await pool.query(query);
     const features = result.rows.map(rowToGeoJSONFeature);
