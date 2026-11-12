@@ -186,16 +186,13 @@ def extract_location(text: str, default_if_none=True):
                 "lon": float(lon)
             }
 
-    # 3. Jika tidak ada nama lokasi spesifik terdeteksi
+    # 3. Jika tidak ada nama lokasi spesifik terdeteksi (berita berskala nasional)
     if default_if_none:
-        # Distribusikan secara deterministik ke hub kota nasional berdasarkan hash teks
-        hub_idx = abs(hash(text)) % len(NATIONAL_HUBS)
-        hub = NATIONAL_HUBS[hub_idx]
         return {
-            "nama": f"{hub[0]} ({hub[1]})",
-            "provinsi": hub[1],
-            "lat": float(hub[2]),
-            "lon": float(hub[3])
+            "nama": "Nasional (DKI Jakarta)",
+            "provinsi": "DKI Jakarta",
+            "lat": -6.1805,
+            "lon": 106.8284
         }
     return None
 

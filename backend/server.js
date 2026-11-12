@@ -159,7 +159,10 @@ app.get('/api/stats', async (req, res) => {
     // Top 5 lokasi persebaran aktif dalam jendela 24 jam beserta breakdown kategori faktual
     const topRegionsQuery = `
       SELECT 
-        split_part(lokasi_nama, ' (', 1) AS lokasi_nama, 
+        CASE 
+          WHEN split_part(lokasi_nama, ' (', 1) ILIKE 'Jakarta%' THEN 'Jakarta'
+          ELSE split_part(lokasi_nama, ' (', 1)
+        END AS lokasi_nama, 
         COUNT(*) AS count,
         COUNT(*) FILTER (WHERE label = 'hoaks') AS hoaks,
         COUNT(*) FILTER (WHERE label = 'fakta') AS fakta,
@@ -168,7 +171,7 @@ app.get('/api/stats', async (req, res) => {
       WHERE status_tayang = TRUE 
         AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
-      GROUP BY split_part(lokasi_nama, ' (', 1)
+      GROUP BY 1
       ORDER BY count DESC
       LIMIT 5;
     `;
@@ -176,35 +179,50 @@ app.get('/api/stats', async (req, res) => {
 
     // Pemimpin fakta wilayah: wilayah dengan hoaks terbanyak, fakta terbanyak, negatif terbanyak
     const topHoaksRes = await pool.query(`
-      SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
+      SELECT 
+        CASE 
+          WHEN split_part(lokasi_nama, ' (', 1) ILIKE 'Jakarta%' THEN 'Jakarta'
+          ELSE split_part(lokasi_nama, ' (', 1)
+        END AS lokasi_nama, 
+        COUNT(*) AS count 
       FROM social_threats 
       WHERE status_tayang = TRUE 
         AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
         AND label = 'hoaks'
-      GROUP BY split_part(lokasi_nama, ' (', 1)
+      GROUP BY 1
       ORDER BY count DESC LIMIT 1;
     `);
 
     const topFaktaRes = await pool.query(`
-      SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
+      SELECT 
+        CASE 
+          WHEN split_part(lokasi_nama, ' (', 1) ILIKE 'Jakarta%' THEN 'Jakarta'
+          ELSE split_part(lokasi_nama, ' (', 1)
+        END AS lokasi_nama, 
+        COUNT(*) AS count 
       FROM social_threats 
       WHERE status_tayang = TRUE 
         AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
         AND label = 'fakta'
-      GROUP BY split_part(lokasi_nama, ' (', 1)
+      GROUP BY 1
       ORDER BY count DESC LIMIT 1;
     `);
 
     const topNegatifRes = await pool.query(`
-      SELECT split_part(lokasi_nama, ' (', 1) AS lokasi_nama, COUNT(*) AS count 
+      SELECT 
+        CASE 
+          WHEN split_part(lokasi_nama, ' (', 1) ILIKE 'Jakarta%' THEN 'Jakarta'
+          ELSE split_part(lokasi_nama, ' (', 1)
+        END AS lokasi_nama, 
+        COUNT(*) AS count 
       FROM social_threats 
       WHERE status_tayang = TRUE 
         AND dibuat_pada >= (NOW() - INTERVAL '24 hours')
         AND lokasi_nama NOT ILIKE 'Nasional%'
         AND label = 'negatif'
-      GROUP BY split_part(lokasi_nama, ' (', 1)
+      GROUP BY 1
       ORDER BY count DESC LIMIT 1;
     `);
 
