@@ -452,6 +452,18 @@ function initCharts() {
       responsive: true,
       maintainAspectRatio: false,
       indexAxis: 'y',
+      onHover: (event, chartElement) => {
+        event.native.target.style.cursor = chartElement && chartElement.length ? 'pointer' : 'default';
+      },
+      onClick: (event, elements) => {
+        if (elements && elements.length > 0) {
+          const index = elements[0].index;
+          const regionName = AppState.chartRegions.data.labels[index];
+          if (regionName) {
+            zoomToRegion(regionName);
+          }
+        }
+      },
       scales: {
         x: { 
           stacked: true,
@@ -475,7 +487,7 @@ function initCharts() {
               tooltipItems.forEach(item => {
                 sum += item.parsed.x;
               });
-              return `Total Kasus: ${sum}`;
+              return `Total: ${sum} isu (Klik untuk menuju lokasi)`;
             }
           }
         }
@@ -531,6 +543,110 @@ function updateChartsAndStats(stats) {
     if (elN && stats.top_category_leaders.negatif) {
       elN.innerText = `${stats.top_category_leaders.negatif.lokasi_nama} (${stats.top_category_leaders.negatif.count})`;
     }
+  }
+}
+
+// Navigasi Kamera Peta Langsung ke Wilayah Terpanas Saat Diklik
+function zoomToRegion(regionName) {
+  if (!regionName || regionName === '-' || regionName === 'Nasional') return;
+
+  const cleanName = regionName.split('(')[0].trim();
+  const searchKey = cleanName.toLowerCase();
+
+  let targetLat = null;
+  let targetLon = null;
+  let targetMarker = null;
+  let matchingCount = 0;
+
+  // 1. Cari titik ancaman aktif di AppState.threats yang cocok dengan wilayah ini
+  for (const [id, feat] of AppState.threats.entries()) {
+    const loc = (feat.properties.lokasi_nama || '').toLowerCase();
+    if (loc.includes(searchKey) || searchKey.includes(loc.split(' ')[0])) {
+      matchingCount++;
+      if (targetLat === null && feat.geometry && feat.geometry.coordinates) {
+        targetLon = feat.geometry.coordinates[0];
+        targetLat = feat.geometry.coordinates[1];
+        targetMarker = AppState.markers.get(id);
+      }
+    }
+  }
+
+  // 2. Fallback: jika tidak ada di threats aktif, cari di AppState.provinces
+  if (targetLat === null && AppState.provinces && Array.isArray(AppState.provinces)) {
+    const prov = AppState.provinces.find(p => 
+      p.provinsi.toLowerCase().includes(searchKey) || searchKey.includes(p.provinsi.toLowerCase())
+    );
+    if (prov && prov.center_lat && prov.center_lon) {
+      targetLat = prov.center_lat;
+      targetLon = prov.center_lon;
+      matchingCount = prov.total || 0;
+    }
+  }
+
+  // 3. Fallback koordinat kota & daerah strategis Indonesia
+  if (targetLat === null) {
+    const CITY_COORDS = {
+      'jayapura': [-2.5489, 140.7167],
+      'jakarta': [-6.2088, 106.8456],
+      'jakarta pusat': [-6.1805, 106.8284],
+      'bandung': [-6.9175, 107.6191],
+      'surabaya': [-7.2575, 112.7521],
+      'semarang': [-6.9667, 110.4167],
+      'palembang': [-2.9761, 104.7754],
+      'makassar': [-5.1477, 119.4327],
+      'medan': [3.5952, 98.6722],
+      'yogyakarta': [-7.7956, 110.3695],
+      'denpasar': [-8.6705, 115.2126],
+      'mataram': [-8.5833, 116.1167],
+      'padang': [-0.9471, 100.4172],
+      'pekanbaru': [0.5071, 101.4478],
+      'banjarmasin': [-3.3194, 114.5908],
+      'pontianak': [-0.0263, 109.3425],
+      'samarinda': [-0.5022, 117.1536],
+      'balikpapan': [-1.2379, 116.8289],
+      'manado': [1.4748, 124.8421],
+      'ambon': [-3.6547, 128.1906],
+      'kupang': [-10.1772, 123.6070]
+    };
+    for (const [cName, coords] of Object.entries(CITY_COORDS)) {
+      if (searchKey.includes(cName) || cName.includes(searchKey)) {
+        targetLat = coords[0];
+        targetLon = coords[1];
+        break;
+      }
+    }
+  }
+
+  // 4. Lakukan animasi flyTo
+  if (targetLat !== null && targetLon !== null) {
+    // Pastikan layer marker aktif
+    if (AppState.activeLayer === 'heat') {
+      const btnMarkers = document.getElementById('btn-layer-markers');
+      if (btnMarkers) btnMarkers.click();
+    }
+
+    AppState.map.flyTo([targetLat, targetLon], 9, {
+      duration: 1.4,
+      easeLinearity: 0.25
+    });
+
+    if (targetMarker) {
+      setTimeout(() => {
+        targetMarker.openPopup();
+      }, 1400);
+
+      // Scroll Feed radar ke berita wilayah tersebut
+      const feedItem = document.getElementById(`feed-item-${targetMarker.feature?.properties?.id}`);
+      if (feedItem) {
+        feedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        feedItem.classList.add('ring-2', 'ring-cyan-400');
+        setTimeout(() => feedItem.classList.remove('ring-2', 'ring-cyan-400'), 2500);
+      }
+    }
+
+    showToast(`📍 Menuju Wilayah Terpanas: ${cleanName} (${matchingCount} isu aktif)`);
+  } else {
+    showToast(`Wilayah ${cleanName} terpantau tetapi koordinat tidak ditemukan.`);
   }
 }
 
@@ -1428,6 +1544,36 @@ function initUIEvents() {
     btnResetProvFilter.onclick = () => {
       selectProvince({ provinsi: 'all' });
       closeProvModal();
+    };
+  }
+
+  // Klik card insight kategori terpanas (Hoaks, Fakta, Negatif)
+  const cardHoaks = document.getElementById('card-top-hoaks');
+  const cardFakta = document.getElementById('card-top-fakta');
+  const cardNegatif = document.getElementById('card-top-negatif');
+
+  if (cardHoaks) {
+    cardHoaks.onclick = () => {
+      const el = document.getElementById('top-fact-hoaks');
+      if (el && el.innerText && el.innerText !== '-') {
+        zoomToRegion(el.innerText.split('(')[0].trim());
+      }
+    };
+  }
+  if (cardFakta) {
+    cardFakta.onclick = () => {
+      const el = document.getElementById('top-fact-fakta');
+      if (el && el.innerText && el.innerText !== '-') {
+        zoomToRegion(el.innerText.split('(')[0].trim());
+      }
+    };
+  }
+  if (cardNegatif) {
+    cardNegatif.onclick = () => {
+      const el = document.getElementById('top-fact-negatif');
+      if (el && el.innerText && el.innerText !== '-') {
+        zoomToRegion(el.innerText.split('(')[0].trim());
+      }
     };
   }
 }

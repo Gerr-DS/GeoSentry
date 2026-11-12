@@ -205,23 +205,25 @@
       <!-- Charts Section: Top Regions & Faktual Kategori -->
       <div class="p-3 border-b border-slate-800/80 shrink-0">
         <div class="flex items-center justify-between mb-1.5">
-          <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center">
+          <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center" title="Klik batang wilayah atau kartu di bawah untuk langsung menuju lokasi di peta">
             <i data-lucide="bar-chart-2" class="w-3.5 h-3.5 mr-1.5 text-emerald-400"></i> Wilayah Terpanas
           </span>
-          <span class="text-[9px] font-mono text-cyan-400 font-semibold uppercase">Faktual (24 Jam)</span>
+          <span class="text-[9px] font-mono text-cyan-400 font-semibold uppercase flex items-center gap-1" title="Klik batang wilayah untuk langsung menuju lokasi">
+            <i data-lucide="mouse-pointer-click" class="w-3 h-3 text-cyan-400"></i> Klik Wilayah
+          </span>
         </div>
 
         <!-- 3 Insight Faktual Kategori (Wilayah Terbanyak Hoaks, Fakta, Negatif) -->
         <div class="grid grid-cols-3 gap-1 mb-2 text-center text-[10px]">
-          <div class="p-1 rounded bg-red-950/40 border border-red-900/60" title="Wilayah dengan sebaran hoaks terbanyak">
+          <div id="card-top-hoaks" class="p-1 rounded bg-red-950/40 border border-red-900/60 cursor-pointer hover:bg-red-900/40 hover:scale-[1.02] transition shadow-sm" title="Klik untuk menuju wilayah sebaran hoaks terbanyak">
             <div class="text-[8px] uppercase font-bold text-red-400">Hoaks Max</div>
             <div id="top-fact-hoaks" class="font-bold text-slate-100 truncate text-[11px]">-</div>
           </div>
-          <div class="p-1 rounded bg-blue-950/40 border border-blue-900/60" title="Wilayah dengan berita fakta terverifikasi terbanyak">
+          <div id="card-top-fakta" class="p-1 rounded bg-blue-950/40 border border-blue-900/60 cursor-pointer hover:bg-blue-900/40 hover:scale-[1.02] transition shadow-sm" title="Klik untuk menuju wilayah berita fakta terverifikasi terbanyak">
             <div class="text-[8px] uppercase font-bold text-blue-400">Fakta Max</div>
             <div id="top-fact-fakta" class="font-bold text-slate-100 truncate text-[11px]">-</div>
           </div>
-          <div class="p-1 rounded bg-amber-950/40 border border-amber-900/60" title="Wilayah dengan provokasi / sentimen negatif terbanyak">
+          <div id="card-top-negatif" class="p-1 rounded bg-amber-950/40 border border-amber-900/60 cursor-pointer hover:bg-amber-900/40 hover:scale-[1.02] transition shadow-sm" title="Klik untuk menuju wilayah provokasi / sentimen negatif terbanyak">
             <div class="text-[8px] uppercase font-bold text-amber-400">Negatif Max</div>
             <div id="top-fact-negatif" class="font-bold text-slate-100 truncate text-[11px]">-</div>
           </div>
