@@ -103,6 +103,55 @@ RSS_SOURCES = [
         "url": "https://bsky.app/profile/fortuneidn.bsky.social/rss",
         "sumber_type": "bluesky",
         "default_label": None
+    },
+    # === FEED REGIONAL PER KEPULAUAN (meningkatkan cakupan berita provinsi luar Jakarta) ===
+    {
+        "nama": "Radar Jawa Barat & Banten",
+        "url": "https://news.google.com/rss/search?q=(bandung+OR+bogor+OR+bekasi+OR+cirebon+OR+serang+OR+tangerang)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Jawa Tengah & DIY",
+        "url": "https://news.google.com/rss/search?q=(semarang+OR+solo+OR+banyumas+OR+yogyakarta+OR+sleman)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Jawa Timur",
+        "url": "https://news.google.com/rss/search?q=(surabaya+OR+malang+OR+jember+OR+kediri+OR+banyuwangi)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Sumatera",
+        "url": "https://news.google.com/rss/search?q=(medan+OR+palembang+OR+padang+OR+aceh+OR+pekanbaru+OR+lampung)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Kalimantan",
+        "url": "https://news.google.com/rss/search?q=(samarinda+OR+balikpapan+OR+pontianak+OR+banjarmasin+OR+palangkaraya)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Sulawesi",
+        "url": "https://news.google.com/rss/search?q=(makassar+OR+manado+OR+palu+OR+kendari+OR+gorontalo)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Bali & Nusa Tenggara",
+        "url": "https://news.google.com/rss/search?q=(denpasar+OR+badung+OR+mataram+OR+lombok+OR+kupang)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
+    },
+    {
+        "nama": "Radar Maluku & Papua",
+        "url": "https://news.google.com/rss/search?q=(jayapura+OR+merauke+OR+sorong+OR+ambon+OR+ternate)+when:2d&hl=id&gl=ID&ceid=ID:id",
+        "sumber_type": "berita",
+        "default_label": None
     }
 ]
 

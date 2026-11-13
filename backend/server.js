@@ -59,11 +59,15 @@ function rowToGeoJSONFeature(row) {
   if (row.provinsi) {
     provinsi = row.provinsi;
   } else if (row.lokasi_nama) {
-    const match = row.lokasi_nama.match(/\((.*?)\)/);
-    if (match && match[1]) {
-      provinsi = match[1].trim();
-    } else if (row.lokasi_nama.toLowerCase().includes('jakarta')) {
-      provinsi = 'DKI Jakarta';
+    if (row.lokasi_nama.toLowerCase().startsWith('nasional')) {
+      provinsi = 'Nasional';
+    } else {
+      const match = row.lokasi_nama.match(/\((.*?)\)/);
+      if (match && match[1]) {
+        provinsi = match[1].trim();
+      } else if (row.lokasi_nama.toLowerCase().includes('jakarta')) {
+        provinsi = 'DKI Jakarta';
+      }
     }
   }
 
@@ -100,11 +104,14 @@ app.get('/api/threats', async (req, res) => {
         st.id, st.sumber, st.teks, st.label, st.probabilitas, 
         ST_AsGeoJSON(st.geom) AS geojson, 
         st.lokasi_nama,
-        COALESCE(
-          NULLIF(substring(st.lokasi_nama from '\\((.*)\\)'), ''),
-          (SELECT g.provinsi FROM gazetteer g WHERE lower(g.nama) = lower(split_part(st.lokasi_nama, ' (', 1)) LIMIT 1),
-          'Nasional'
-        ) AS provinsi,
+        CASE
+          WHEN st.lokasi_nama ILIKE 'Nasional%' THEN 'Nasional'
+          ELSE COALESCE(
+            NULLIF(substring(st.lokasi_nama from '\\((.*)\\)'), ''),
+            (SELECT g.provinsi FROM gazetteer g WHERE lower(g.nama) = lower(split_part(st.lokasi_nama, ' (', 1)) LIMIT 1),
+            'Nasional'
+          )
+        END AS provinsi,
         st.url, st.referensi_urls, st.status_tayang, st.dikoreksi, st.dibuat_pada
       FROM social_threats st
       WHERE st.status_tayang = TRUE 
@@ -268,11 +275,14 @@ app.get('/api/provinces', async (req, res) => {
   try {
     const query = `
       SELECT 
-        COALESCE(
-          NULLIF(substring(lokasi_nama from '\\((.*)\\)'), ''),
-          (SELECT g.provinsi FROM gazetteer g WHERE lower(g.nama) = lower(split_part(st.lokasi_nama, ' (', 1)) LIMIT 1),
-          'Nasional'
-        ) AS provinsi,
+        CASE
+          WHEN st.lokasi_nama ILIKE 'Nasional%' THEN 'Nasional'
+          ELSE COALESCE(
+            NULLIF(substring(lokasi_nama from '\\((.*)\\)'), ''),
+            (SELECT g.provinsi FROM gazetteer g WHERE lower(g.nama) = lower(split_part(st.lokasi_nama, ' (', 1)) LIMIT 1),
+            'Nasional'
+          )
+        END AS provinsi,
         COUNT(*)::int AS total,
         COUNT(*) FILTER (WHERE label = 'hoaks')::int AS hoaks,
         COUNT(*) FILTER (WHERE label = 'fakta')::int AS fakta,

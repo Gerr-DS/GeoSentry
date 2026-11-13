@@ -189,10 +189,10 @@ def extract_location(text: str, default_if_none=True):
     # 3. Jika tidak ada nama lokasi spesifik terdeteksi (berita berskala nasional)
     if default_if_none:
         return {
-            "nama": "Nasional (DKI Jakarta)",
-            "provinsi": "DKI Jakarta",
-            "lat": -6.1805,
-            "lon": 106.8284
+            "nama": "Nasional",
+            "provinsi": "Nasional",
+            "lat": -2.5,
+            "lon": 118.0
         }
     return None
 

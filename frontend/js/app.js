@@ -351,15 +351,25 @@ function isFeatureMatchFilter(feature) {
     const pProv = (p.provinsi || '').toLowerCase().trim();
     const pLokasi = (p.lokasi_nama || '').toLowerCase().trim();
 
-    const isJakartaFilter = provLower === 'dki jakarta' || provLower === 'jakarta';
-    const isJakartaThreat = pProv === 'dki jakarta' || pLokasi.includes('jakarta') || pLokasi.includes('kepulauan seribu');
+    const isNasionalThreat = pProv === 'nasional' || pLokasi.startsWith('nasional');
 
-    if (isJakartaFilter) {
-      matchProv = isJakartaThreat;
+    if (provLower === 'nasional') {
+      // Filter Nasional: hanya tampilkan berita nasional
+      matchProv = isNasionalThreat;
+    } else if (provLower === 'dki jakarta' || provLower === 'jakarta') {
+      // Filter DKI Jakarta: exclude berita nasional
+      matchProv = !isNasionalThreat && (
+        pProv === 'dki jakarta' ||
+        pLokasi.includes('jakarta') ||
+        pLokasi.includes('kepulauan seribu')
+      );
     } else {
-      matchProv = pProv === provLower || 
-                  pLokasi.includes(provLower) ||
-                  (pProv && provLower.includes(pProv) && pProv !== 'nasional');
+      // Filter provinsi lain: exclude berita nasional
+      matchProv = !isNasionalThreat && (
+        pProv === provLower ||
+        pLokasi.includes(provLower) ||
+        (pProv && provLower.includes(pProv) && pProv !== 'nasional')
+      );
     }
   }
 
