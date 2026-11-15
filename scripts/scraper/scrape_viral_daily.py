@@ -10,8 +10,13 @@ import sys
 import re
 import time
 import json
+from email.utils import parsedate_to_datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import quote_plus
 from datetime import datetime, timezone, timedelta
 import feedparser
+import requests
 import socket
 
 # Paksa resolusi IPv4 untuk menghindari delay SYN_SENT pada jaringan yang tidak memiliki rute IPv6
@@ -35,13 +40,25 @@ if BASE_DIR not in sys.path:
 
 from scripts.nlp.predict import predict_threat
 from scripts.gazetteer.geocode import extract_location
+from scripts.tools.verification_gate import verify_news_candidate, source_domain, is_identifiable_news_publisher
+from scripts.search_news import is_trusted
 
 RSS_SOURCES = [
     {
         "nama": "TurnBackHoax",
         "url": "https://turnbackhoax.id/feed/",
         "sumber_type": "turnbackhoax",
-        "default_label": "hoaks"
+        "default_label": None
+    },
+    {
+        "nama": "CekFakta",
+        "url": "https://cekfakta.com/feed/?limit=20",
+        # RSS item feed tidak selalu menyertakan tanggal terbit. Untuk sumber
+        # ini tanggal wajib dibaca dari halaman asli; jangan menganggapnya baru.
+        "sumber_type": "berita",
+        "default_label": None,
+        "max_items": 20,
+        "require_published_date": True,
     },
     {
         "nama": "Google News Indonesia",
@@ -53,7 +70,7 @@ RSS_SOURCES = [
         "nama": "Antara News Terkini",
         "url": "https://www.antaranews.com/rss/terkini.xml",
         "sumber_type": "berita",
-        "default_label": "fakta"
+        "default_label": None
     },
     {
         "nama": "CNBC Indonesia",
@@ -61,99 +78,68 @@ RSS_SOURCES = [
         "sumber_type": "berita",
         "default_label": None
     },
-    # JALUR EKSKLUSIF MEDIA SOSIAL (TIKTOK, INSTAGRAM, TWITTER/X, REDDIT, BLUESKY)
-    {
-        "nama": "TikTok Viral Indonesia",
-        "url": "https://news.google.com/rss/search?q=site:tiktok.com+viral+OR+hoaks+OR+bansos+OR+heboh+indonesia&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "tiktok",
-        "default_label": None
-    },
-    {
-        "nama": "Instagram Reels & Postingan Viral",
-        "url": "https://news.google.com/rss/search?q=site:instagram.com+viral+OR+klarifikasi+OR+hoaks+OR+kejadian+indonesia&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "instagram",
-        "default_label": None
-    },
-    {
-        "nama": "Twitter / X Trending Indonesia",
-        "url": "https://news.google.com/rss/search?q=viral+cuitan+OR+tweet+OR+trending+X+OR+twitter+indonesia&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "twitter",
-        "default_label": None
-    },
-    {
-        "nama": "Reddit r/indonesia Diskusi Viral",
-        "url": "https://news.google.com/rss/search?q=site:reddit.com/r/indonesia+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "reddit",
-        "default_label": None
-    },
-    {
-        "nama": "Reddit Indonesia Isu Hangat",
-        "url": "https://news.google.com/rss/search?q=site:reddit.com+indonesia+viral+when:3d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "reddit",
-        "default_label": None
-    },
-    {
-        "nama": "Bluesky Indonesia Antara Feed",
-        "url": "https://bsky.app/profile/antara-poster.bsky.social/rss",
-        "sumber_type": "bluesky",
-        "default_label": None
-    },
-    {
-        "nama": "Bluesky Indonesia Fortune Feed",
-        "url": "https://bsky.app/profile/fortuneidn.bsky.social/rss",
-        "sumber_type": "bluesky",
-        "default_label": None
-    },
-    # === FEED REGIONAL PER KEPULAUAN (meningkatkan cakupan berita provinsi luar Jakarta) ===
-    {
-        "nama": "Radar Jawa Barat & Banten",
-        "url": "https://news.google.com/rss/search?q=(bandung+OR+bogor+OR+bekasi+OR+cirebon+OR+serang+OR+tangerang)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Jawa Tengah & DIY",
-        "url": "https://news.google.com/rss/search?q=(semarang+OR+solo+OR+banyumas+OR+yogyakarta+OR+sleman)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Jawa Timur",
-        "url": "https://news.google.com/rss/search?q=(surabaya+OR+malang+OR+jember+OR+kediri+OR+banyuwangi)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Sumatera",
-        "url": "https://news.google.com/rss/search?q=(medan+OR+palembang+OR+padang+OR+aceh+OR+pekanbaru+OR+lampung)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Kalimantan",
-        "url": "https://news.google.com/rss/search?q=(samarinda+OR+balikpapan+OR+pontianak+OR+banjarmasin+OR+palangkaraya)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Sulawesi",
-        "url": "https://news.google.com/rss/search?q=(makassar+OR+manado+OR+palu+OR+kendari+OR+gorontalo)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Bali & Nusa Tenggara",
-        "url": "https://news.google.com/rss/search?q=(denpasar+OR+badung+OR+mataram+OR+lombok+OR+kupang)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    },
-    {
-        "nama": "Radar Maluku & Papua",
-        "url": "https://news.google.com/rss/search?q=(jayapura+OR+merauke+OR+sorong+OR+ambon+OR+ternate)+when:2d&hl=id&gl=ID&ceid=ID:id",
-        "sumber_type": "berita",
-        "default_label": None
-    }
 ]
+
+# Satu feed pencarian untuk setiap provinsi. Kata kota/ibu kota membantu Google
+# News menemukan laporan lokal walaupun judul tidak menulis nama provinsinya.
+PROVINCE_SEARCHES = [
+    ("Aceh", '"Aceh" OR "Banda Aceh"'),
+    ("Sumatera Utara", '"Sumatera Utara" OR "Sumut" OR "Medan"'),
+    ("Sumatera Barat", '"Sumatera Barat" OR "Sumbar" OR "Padang"'),
+    ("Riau", '"Riau" OR "Pekanbaru"'),
+    ("Kepulauan Riau", '"Kepulauan Riau" OR "Kepri" OR "Batam" OR "Tanjungpinang"'),
+    ("Jambi", '"Jambi" OR "Kota Jambi"'),
+    ("Sumatera Selatan", '"Sumatera Selatan" OR "Sumsel" OR "Palembang"'),
+    ("Kepulauan Bangka Belitung", '"Bangka Belitung" OR "Babel" OR "Pangkalpinang"'),
+    ("Bengkulu", '"Bengkulu"'),
+    ("Lampung", '"Lampung" OR "Bandar Lampung"'),
+    ("DKI Jakarta", '"DKI Jakarta" OR "Jakarta"'),
+    ("Jawa Barat", '"Jawa Barat" OR "Jabar" OR "Bandung"'),
+    ("Banten", '"Banten" OR "Serang" OR "Tangerang"'),
+    ("Jawa Tengah", '"Jawa Tengah" OR "Jateng" OR "Semarang"'),
+    ("DI Yogyakarta", '"DI Yogyakarta" OR "Yogyakarta" OR "DIY"'),
+    ("Jawa Timur", '"Jawa Timur" OR "Jatim" OR "Surabaya"'),
+    ("Bali", '"Bali" OR "Denpasar"'),
+    ("Nusa Tenggara Barat", '"Nusa Tenggara Barat" OR "NTB" OR "Mataram"'),
+    ("Nusa Tenggara Timur", '"Nusa Tenggara Timur" OR "NTT" OR "Kupang"'),
+    ("Kalimantan Barat", '"Kalimantan Barat" OR "Kalbar" OR "Pontianak"'),
+    ("Kalimantan Tengah", '"Kalimantan Tengah" OR "Kalteng" OR "Palangka Raya"'),
+    ("Kalimantan Selatan", '"Kalimantan Selatan" OR "Kalsel" OR "Banjarmasin"'),
+    ("Kalimantan Timur", '"Kalimantan Timur" OR "Kaltim" OR "Samarinda" OR "Balikpapan"'),
+    ("Kalimantan Utara", '"Kalimantan Utara" OR "Kaltara" OR "Tarakan" OR "Tanjung Selor"'),
+    ("Sulawesi Utara", '"Sulawesi Utara" OR "Sulut" OR "Manado"'),
+    ("Gorontalo", '"Gorontalo"'),
+    ("Sulawesi Tengah", '"Sulawesi Tengah" OR "Sulteng" OR "Palu"'),
+    ("Sulawesi Barat", '"Sulawesi Barat" OR "Sulbar" OR "Mamuju"'),
+    ("Sulawesi Selatan", '"Sulawesi Selatan" OR "Sulsel" OR "Makassar"'),
+    ("Sulawesi Tenggara", '"Sulawesi Tenggara" OR "Sultra" OR "Kendari"'),
+    ("Maluku", '"Provinsi Maluku" OR "Ambon"'),
+    ("Maluku Utara", '"Maluku Utara" OR "Malut" OR "Ternate" OR "Sofifi"'),
+    ("Papua", '"Provinsi Papua" OR "Jayapura"'),
+    ("Papua Barat", '"Papua Barat" OR "Manokwari"'),
+    ("Papua Selatan", '"Papua Selatan" OR "Merauke"'),
+    ("Papua Tengah", '"Papua Tengah" OR "Nabire"'),
+    ("Papua Pegunungan", '"Papua Pegunungan" OR "Wamena" OR "Jayawijaya"'),
+    ("Papua Barat Daya", '"Papua Barat Daya" OR "Sorong"'),
+]
+RSS_SOURCES.extend({
+    "nama": f"Provinsi {province}",
+    "url": (
+        "https://news.google.com/rss/search?q="
+        f"{quote_plus(f'({query}) when:1d')}&hl=id&gl=ID&ceid=ID:id"
+    ),
+    "sumber_type": "berita",
+    "default_label": None,
+    "max_items": 5,
+} for province, query in PROVINCE_SEARCHES)
+
+RSS_FETCH_STATUS = {}
+RSS_REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; GeoSentry/1.0; public news feed reader)",
+    "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8",
+}
+RSS_REQUEST_TIMEOUT = (5, 12)
+RSS_REQUEST_ATTEMPTS = 2
 
 # Fallback berita & hoaks viral kurasi offline (jika koneksi RSS sedang offline/timeout)
 FALLBACK_VIRAL_DATA = [
@@ -317,59 +303,266 @@ def clean_html(raw_html: str) -> str:
     return text
 
 
+def resolve_feed_article_url(url):
+    """Resolve Google News RSS wrappers to the original publisher article URL."""
+    parsed = urlparse(url or "")
+    direct_url = parse_qs(parsed.query).get("url", [""])[0]
+    if direct_url:
+        direct_url = unquote(direct_url)
+        if is_trusted(source_domain(direct_url)):
+            return direct_url
+    if source_domain(url) != "news.google.com":
+        return url
+    try:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; GeoSentry/1.0)"},
+            timeout=(2, 4),
+            allow_redirects=True,
+        )
+        if is_trusted(source_domain(response.url)):
+            return response.url
+        soup = BeautifulSoup(response.content, "html.parser")
+        candidates = []
+        canonical = soup.find("link", rel="canonical")
+        if canonical and canonical.get("href"):
+            candidates.append(canonical["href"])
+        for node in soup.find_all("a", href=True):
+            candidate = node["href"]
+            nested = parse_qs(urlparse(candidate).query).get("url", [""])[0]
+            candidates.append(unquote(nested) if nested else candidate)
+        return next((candidate for candidate in candidates if is_trusted(source_domain(candidate))), url)
+    except requests.RequestException:
+        return url
+
+
+def parse_published_datetime(value):
+    """Parse RFC/ISO publication dates without guessing when metadata is absent."""
+    if not value:
+        return None
+    value = str(value).strip()
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError, OverflowError):
+        try:
+            parsed = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if parsed.tzinfo is None:
+        # Tanggal tanpa zona waktu di halaman Indonesia ditafsirkan sebagai WIB.
+        parsed = parsed.replace(tzinfo=timezone(timedelta(hours=7)))
+    return parsed.astimezone(timezone.utc)
+
+
+def fetch_article_published_at(url):
+    """Read original article publication metadata for feeds without timestamps."""
+    try:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; GeoSentry/1.0)"},
+            timeout=(2, 4),
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, "html.parser")
+        for attrs in (
+            {"property": "article:published_time"},
+            {"name": "article:published_time"},
+            {"itemprop": "datePublished"},
+            {"property": "datePublished"},
+            {"name": "datePublished"},
+        ):
+            node = soup.find("meta", attrs=attrs)
+            if node and node.get("content"):
+                parsed = parse_published_datetime(node["content"])
+                if parsed:
+                    return parsed
+        time_node = soup.find("time", attrs={"datetime": True})
+        if time_node:
+            parsed = parse_published_datetime(time_node.get("datetime"))
+            if parsed:
+                return parsed
+
+        def dates_in_json(value):
+            if isinstance(value, dict):
+                for key, item in value.items():
+                    if key.casefold() == "datepublished":
+                        parsed = parse_published_datetime(item)
+                        if parsed:
+                            return parsed
+                    parsed = dates_in_json(item)
+                    if parsed:
+                        return parsed
+            elif isinstance(value, list):
+                for item in value:
+                    parsed = dates_in_json(item)
+                    if parsed:
+                        return parsed
+            return None
+
+        for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+            try:
+                parsed = dates_in_json(json.loads(script.string or script.get_text()))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed = None
+            if parsed:
+                return parsed
+    except requests.RequestException:
+        return None
+    return None
+
+
+def fetch_rss_source(source):
+    """Fetch one feed with bounded retries and preserve network/parser errors."""
+    last_error = None
+    for attempt in range(RSS_REQUEST_ATTEMPTS):
+        try:
+            response = requests.get(
+                source["url"],
+                headers=RSS_REQUEST_HEADERS,
+                timeout=RSS_REQUEST_TIMEOUT,
+                allow_redirects=True,
+            )
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            if getattr(feed, "bozo", False) and not feed.entries:
+                parse_error = getattr(feed, "bozo_exception", None)
+                raise ValueError(f"RSS tidak dapat diparse: {parse_error or 'format tidak dikenal'}")
+            return feed, None
+        except requests.HTTPError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            last_error = f"HTTP {code}: {exc}"
+            # Authentication, not-found, and throttling responses are not
+            # improved by repeating the same request immediately.
+            if code is not None and 400 <= code < 500:
+                break
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
+
+        if attempt + 1 < RSS_REQUEST_ATTEMPTS:
+            time.sleep(0.5 * (attempt + 1))
+
+    return None, last_error or "feed gagal diambil tanpa detail error"
+
+
 def fetch_live_viral_rss():
-    """Mengambil berita viral terkini dari Google News, TurnBackHoax, Antara, dan CNBC."""
+    """Fetch national feeds and province searches concurrently, then resolve publisher links."""
     articles = []
+    pending = []
+    RSS_FETCH_STATUS.clear()
     now = datetime.now(timezone.utc)
     cutoff_24h = now - timedelta(hours=24) # Rolling 24 jam
 
-    for src in RSS_SOURCES:
-        try:
-            feed = feedparser.parse(src["url"])
-            if not feed.entries:
-                continue
-
-            for entry in feed.entries[:30]:
-                raw_summary = entry.get("summary", entry.get("description", ""))
-                summary = clean_html(raw_summary)
-                raw_title = entry.get("title")
-                title = str(raw_title).strip() if raw_title else ""
-                if not title or title.lower() in ["none", "null"]:
-                    title = summary[:120].strip() if summary else ""
-                if not title:
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        future_sources = {executor.submit(fetch_rss_source, src): src for src in RSS_SOURCES}
+        for future in as_completed(future_sources):
+            src = future_sources[future]
+            try:
+                feed, fetch_error = future.result()
+                if fetch_error:
+                    RSS_FETCH_STATUS[src["nama"]] = {
+                        "status": "tidak_tersedia",
+                        "jumlah": 0,
+                        "alasan": fetch_error,
+                    }
+                    print(f"[!] Gagal mengambil feed {src['nama']}: {fetch_error}", file=sys.stderr)
+                    continue
+                if not feed.entries:
+                    RSS_FETCH_STATUS[src["nama"]] = {
+                        "status": "kosong",
+                        "jumlah": 0,
+                        "alasan": "feed berhasil diakses, tetapi tidak berisi artikel",
+                    }
                     continue
 
-                link = entry.get("link", src["url"])
+                RSS_FETCH_STATUS[src["nama"]] = {
+                    "status": "berhasil",
+                    "jumlah": 0,
+                    **(
+                        {"peringatan": str(feed.bozo_exception)}
+                        if getattr(feed, "bozo", False) else {}
+                    ),
+                }
 
-                # Parse tanggal publikasi
-                published_dt = None
-                if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=timezone.utc)
-                elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
-                    published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), tz=timezone.utc)
-                
-                # Jika tanggal tidak tercantum (seperti beberapa format TurnBackHoax),
-                # beri timestamp sekarang
-                if not published_dt:
-                    published_dt = now
+                for entry in feed.entries[:src.get("max_items", 30)]:
+                    raw_summary = entry.get("summary", entry.get("description", ""))
+                    summary = clean_html(raw_summary)
+                    raw_title = entry.get("title")
+                    title = str(raw_title).strip() if raw_title else ""
+                    if not title or title.lower() in ["none", "null"]:
+                        title = summary[:120].strip() if summary else ""
+                    if not title:
+                        continue
 
-                # Pastikan berada dalam jendela 24 jam terakhir
-                if published_dt < cutoff_24h:
-                    continue
+                    published_dt = None
+                    if hasattr(entry, "published_parsed") and entry.published_parsed:
+                        published_dt = datetime.fromtimestamp(time.mktime(entry.published_parsed), tz=timezone.utc)
+                    elif hasattr(entry, "updated_parsed") and entry.updated_parsed:
+                        published_dt = datetime.fromtimestamp(time.mktime(entry.updated_parsed), tz=timezone.utc)
 
-                combined_text = f"{title}. {summary}" if summary else title
-                articles.append({
-                    "judul": title,
-                    "isi": combined_text,
-                    "url": link,
-                    "sumber": src["sumber_type"],
-                    "published_at": published_dt,
-                    "referensi_urls": [
-                        {"sumber": src["sumber_type"], "url": link, "judul": title}
-                    ]
-                })
-        except Exception as e:
-            print(f"[!] Gagal menarik feed {src['nama']}: {e}", file=sys.stderr)
+                    if not published_dt and not src.get("require_published_date"):
+                        published_dt = now
+                    if published_dt and published_dt < cutoff_24h:
+                        continue
+
+                    combined_text = f"{title}. {summary}" if summary else title
+                    publisher = entry.get("source") or {}
+                    pending.append({
+                        "judul": title,
+                        "isi": combined_text,
+                        "feed_url": entry.get("link", src["url"]),
+                        "publisher_url": publisher.get("href"),
+                        "publisher_name": publisher.get("title"),
+                        "sumber": src["sumber_type"],
+                        "nama_feed": src["nama"],
+                        "default_label": src.get("default_label"),
+                        "published_at": published_dt,
+                        "require_published_date": src.get("require_published_date", False),
+                    })
+                    RSS_FETCH_STATUS[src["nama"]]["jumlah"] += 1
+            except Exception as e:
+                print(f"[!] Gagal menarik feed {src['nama']}: {e}", file=sys.stderr)
+                RSS_FETCH_STATUS[src["nama"]] = {
+                    "status": "tidak_tersedia", "jumlah": 0,
+                    "alasan": f"{type(e).__name__}: {e}",
+                }
+
+    # Google News wraps publisher URLs. Resolve links concurrently so adding
+    # 38 province feeds does not turn one hourly pass into a serial crawl.
+    def resolve_pending(item):
+        link = resolve_feed_article_url(item["feed_url"])
+        published = item["published_at"]
+        if published is None and item["require_published_date"]:
+            published = fetch_article_published_at(link)
+        return item, link, published
+
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        resolved = list(executor.map(resolve_pending, pending))
+    for item, link, published_dt in resolved:
+        item["published_at"] = published_dt
+        if item["require_published_date"] and (
+            not published_dt
+            or published_dt < cutoff_24h
+            or published_dt > now + timedelta(minutes=5)
+        ):
+            RSS_FETCH_STATUS[item["nama_feed"]]["jumlah"] -= 1
+            continue
+        item["url"] = link
+        item["referensi_urls"] = [{"sumber": item["sumber"], "url": link, "judul": item["judul"]}]
+        publisher_url = item.get("publisher_url")
+        publisher_domain = source_domain(publisher_url)
+        if (
+            source_domain(link) == "news.google.com"
+            and is_identifiable_news_publisher(publisher_url)
+        ):
+            item["referensi_urls"].append({
+                "sumber": item.get("publisher_name") or publisher_domain,
+                "url": publisher_url,
+                "judul": f"Situs penerbit: {item.get('publisher_name') or publisher_domain}",
+            })
+        item.pop("feed_url", None)
+        item.pop("require_published_date", None)
+        articles.append(item)
 
     return articles
 
@@ -384,32 +577,13 @@ def sync_viral_threats_to_db():
     live_articles = fetch_live_viral_rss()
     print(f"[i] Berhasil menarik {len(live_articles)} artikel online dari RSS feeds.")
 
-    # Jika online kosong (misal tanpa akses internet saat evaluasi), gunakan fail-safe kurasi offline
-    if len(live_articles) < 5:
-        print("[i] Menggunakan dataset berita & hoaks viral terkurasi (Fail-Safe Evaluasi).")
-        now = datetime.now(timezone.utc)
-        for fb in FALLBACK_VIRAL_DATA:
-            dt = now - timedelta(days=fb["days_ago"], hours=fb.get("hours_ago", 2))
-            live_articles.append({
-                "judul": fb["judul"],
-                "isi": f"{fb['judul']}. {fb['isi']}",
-                "url": fb["url"],
-                "sumber": fb["sumber"],
-                "published_at": dt,
-                "referensi_urls": fb.get("referensi_urls", [
-                    {"sumber": fb["sumber"], "url": fb["url"], "judul": fb["judul"]}
-                ]),
-                "forced_loc": {
-                    "nama": fb["kota"],
-                    "provinsi": fb["kota"].split("(")[-1].replace(")", "").strip(),
-                    "lat": fb["lat"],
-                    "lon": fb["lon"]
-                }
-            })
-
     inserted_count = 0
     updated_count = 0
+    withheld_count = 0
     newly_inserted_items = []
+    verified_by_feed = {name: 0 for name in RSS_FETCH_STATUS}
+    provisional_by_feed = {name: 0 for name in RSS_FETCH_STATUS}
+    withheld_by_feed = {name: 0 for name in RSS_FETCH_STATUS}
 
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -417,6 +591,31 @@ def sync_viral_threats_to_db():
                 text = art["isi"]
                 url = art["url"]
                 published_at = art["published_at"]
+                verification = verify_news_candidate(
+                    art.get("judul", ""), text, url,
+                    publisher_url=art.get("publisher_url"),
+                    publisher_name=art.get("publisher_name"),
+                )
+                if not verification:
+                    withheld_count += 1
+                    feed_name = art.get("nama_feed", "sumber lain")
+                    withheld_by_feed[feed_name] = withheld_by_feed.get(feed_name, 0) + 1
+                    continue
+                feed_name = art.get("nama_feed", "sumber lain")
+                verification_status = verification.get("status", "terverifikasi")
+                if verification_status == "terverifikasi":
+                    verified_by_feed[feed_name] = verified_by_feed.get(feed_name, 0) + 1
+                elif verification_status == "prediksi_sementara":
+                    provisional_by_feed[feed_name] = provisional_by_feed.get(feed_name, 0) + 1
+                domain = source_domain(url)
+                if domain.endswith("turnbackhoax.id"):
+                    sumber_final = "turnbackhoax"
+                elif domain.endswith(("cekfakta.com", "cekfakta.tempo.co", "mafindo.or.id")):
+                    # Sumber rinci tetap ada di URL referensi; kelompokkan di
+                    # dashboard sebagai berita agar nama TurnBackHoax tidak keliru.
+                    sumber_final = "berita"
+                else:
+                    sumber_final = art["sumber"]
 
                 # 1. Cek apakah artikel dengan URL atau judul serupa sudah ada
                 cur.execute("SELECT id, url, referensi_urls FROM social_threats WHERE url = %s OR teks = %s LIMIT 1;", (url, text))
@@ -447,38 +646,25 @@ def sync_viral_threats_to_db():
                     if has_new_ref:
                         cur.execute("""
                             UPDATE social_threats 
-                            SET status_tayang = TRUE, dibuat_pada = %s, referensi_urls = %s::jsonb
+                            SET status_tayang = TRUE, dibuat_pada = %s, referensi_urls = %s::jsonb,
+                                label = %s, probabilitas = %s, verifikasi_status = %s,
+                                verifikasi_dasar = %s, verifikasi_pada = NOW()
                             WHERE id = %s;
-                        """, (published_at, json.dumps(existing_refs), existing_id))
+                        """, (published_at, json.dumps(existing_refs), verification["label"], verification["probabilitas"], verification_status, verification["basis"], existing_id))
                     else:
                         cur.execute("""
                             UPDATE social_threats 
-                            SET status_tayang = TRUE, dibuat_pada = %s
+                            SET status_tayang = TRUE, dibuat_pada = %s, label = %s,
+                                probabilitas = %s, verifikasi_status = %s,
+                                verifikasi_dasar = %s, verifikasi_pada = NOW()
                             WHERE id = %s;
-                        """, (published_at, existing_id))
+                        """, (published_at, verification["label"], verification["probabilitas"], verification_status, verification["basis"], existing_id))
                     updated_count += 1
                     continue
 
-                # 2. Deteksi media sosial asal (TikTok, Instagram, Twitter, Reddit, Bluesky)
-                sumber_final = art["sumber"]
-                lower_txt = text.lower()
-                lower_url = url.lower()
-                if sumber_final in ["berita", "google_news", "turnbackhoax"]:
-                    if "tiktok" in lower_txt or "tiktok.com" in lower_url:
-                        sumber_final = "tiktok"
-                    elif "instagram" in lower_txt or "instagram.com" in lower_url or "postingan ig" in lower_txt or "akun ig" in lower_txt:
-                        sumber_final = "instagram"
-                    elif "twitter" in lower_txt or "twitter.com" in lower_url or "x.com" in lower_url or "akun x" in lower_txt or "cuitan" in lower_txt:
-                        sumber_final = "twitter"
-                    elif "reddit" in lower_txt or "reddit.com" in lower_url or "r/indonesia" in lower_txt:
-                        sumber_final = "reddit"
-                    elif "bluesky" in lower_txt or "bsky.app" in lower_url or "bsky.social" in lower_url:
-                        sumber_final = "bluesky"
-
-                # 3. Klasifikasi AI (Hybrid NLP SGD + TurnBackHoax Knowledge Base)
-                pred = predict_threat(text)
-                label = pred["label"]
-                prob = pred["probabilitas"]
+                # Label comes from an explicit source verdict, not a model guess.
+                label = verification["label"]
+                prob = verification["probabilitas"]
 
                 # 4. Geocoding Lokasi Spasial
                 if "forced_loc" in art:
@@ -498,9 +684,11 @@ def sync_viral_threats_to_db():
                 # 5. Simpan ke Database PostgreSQL PostGIS dengan referensi_urls lengkap
                 query = """
                     INSERT INTO social_threats 
-                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada)
+                    (sumber, teks, label, probabilitas, geom, lokasi_nama, url, referensi_urls,
+                     status_tayang, verifikasi_status, verifikasi_dasar, verifikasi_pada, dikoreksi, dibuat_pada)
                     VALUES 
-                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s::jsonb, TRUE, FALSE, %s)
+                    (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s::jsonb,
+                     TRUE, %s, %s, NOW(), FALSE, %s)
                     RETURNING id;
                 """
                 cur.execute(query, (
@@ -513,6 +701,8 @@ def sync_viral_threats_to_db():
                     lokasi_nama,
                     url,
                     json.dumps(initial_refs),
+                    verification_status,
+                    verification["basis"],
                     published_at
                 ))
                 new_id = cur.fetchone()[0]
@@ -526,6 +716,8 @@ def sync_viral_threats_to_db():
                     "lokasi_nama": lokasi_nama,
                     "url": url,
                     "referensi_urls": initial_refs,
+                    "verifikasi_status": verification_status,
+                    "verifikasi_dasar": verification["basis"],
                     "dibuat_pada": published_at.isoformat() if hasattr(published_at, "isoformat") else str(published_at)
                 })
                 inserted_count += 1
@@ -548,8 +740,18 @@ def sync_viral_threats_to_db():
     result = {
         "status": "success",
         "fetched": len(live_articles),
+        "source_status": {
+            name: {
+                **status,
+                "terverifikasi": verified_by_feed.get(name, 0),
+                "prediksi_sementara": provisional_by_feed.get(name, 0),
+                "ditahan": withheld_by_feed.get(name, 0),
+            }
+            for name, status in RSS_FETCH_STATUS.items()
+        },
         "inserted": inserted_count,
         "updated": updated_count,
+        "withheld": withheld_count,
         "total_active_24h": stats[0],
         "hoaks": stats[1],
         "fakta": stats[2],

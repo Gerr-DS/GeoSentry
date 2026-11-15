@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS social_threats (
     url           TEXT,
     referensi_urls JSONB DEFAULT '[]'::jsonb,
     status_tayang BOOLEAN DEFAULT FALSE,
+    verifikasi_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    verifikasi_dasar TEXT,
+    verifikasi_pada TIMESTAMPTZ,
     dikoreksi     BOOLEAN DEFAULT FALSE,
     dibuat_pada   TIMESTAMPTZ DEFAULT NOW()
 );

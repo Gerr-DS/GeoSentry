@@ -21,8 +21,6 @@ def analyze(text: str) -> dict:
     if not text or not text.strip():
         return {
             "error": "Teks tidak boleh kosong",
-            "label": "fakta",
-            "probabilitas": 0.5,
             "lokasi": None
         }
 

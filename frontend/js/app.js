@@ -12,17 +12,65 @@
 const AppState = {
   threats: new Map(), // id -> feature
   markers: new Map(), // id -> L.marker
-  currentFilter: { label: 'all', sumber: 'all', search: '', provinsi: 'all' },
+  currentFilter: { label: 'all', search: '', provinsi: 'all' },
   provinces: [], // daftar 38 provinsi dari API
-  activeLayer: 'markers', // 'markers' | 'heatmap'
+  markersVisible: true,
   basemapMode: 'osm_light',
   map: null,
   osmTile: null,
-  heatLayer: null,
   chartCategory: null,
-  chartRegions: null,
   socket: null,
   lastAnalysis: null
+};
+
+function getClassificationDisplay(label) {
+  if (label === 'hoaks') return { text: 'Hoaks', color: 'red' };
+  if (label === 'fakta') return { text: 'Fakta', color: 'blue' };
+  return { text: 'Belum dapat dipastikan', color: 'slate' };
+}
+
+function getSourceName(source) {
+  const names = {
+    berita: 'Portal berita',
+    turnbackhoax: 'TurnBackHoax',
+    twitter: 'X / Twitter',
+    x: 'X',
+    tiktok: 'TikTok',
+    instagram: 'Instagram',
+    mastodon: 'Mastodon',
+    bluesky: 'Bluesky',
+    reddit: 'Reddit',
+    cek_mandiri: 'Analisis manual'
+  };
+  return names[source] || String(source || 'Portal berita');
+}
+
+// Analisis dan event Socket.IO di luar DOMContentLoaded juga memakai toast.
+window.showToast = function showToast(message, isError = false) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'fixed top-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `px-4 py-2.5 rounded-lg shadow-lg text-xs font-semibold flex items-center space-x-2 border transition-all duration-300 transform translate-y-[-6px] opacity-0 pointer-events-auto ${
+    isError ? 'bg-red-50 text-red-800 border-red-200' : 'app-surface text-slate-800 border-slate-300'
+  }`;
+  const indicator = document.createElement('span');
+  indicator.className = `w-2 h-2 rounded-full ${isError ? 'bg-red-400' : 'bg-slate-700'}`;
+  const text = document.createElement('span');
+  text.textContent = message;
+  toast.append(indicator, text);
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.remove('translate-y-[-10px]', 'opacity-0'));
+
+  setTimeout(() => {
+    toast.classList.add('opacity-0', 'translate-y-[-10px]');
+    setTimeout(() => toast.remove(), 300);
+  }, 4500);
 };
 
 // ==========================================
@@ -52,18 +100,6 @@ function initMap() {
   // Pasang OpenStreetMap Standard Light secara permanen
   AppState.osmTile.addTo(AppState.map);
 
-  // Inisialisasi Heat Layer
-  AppState.heatLayer = L.heatLayer([], {
-    radius: 30,
-    blur: 22,
-    maxZoom: 12,
-    gradient: {
-      0.2: '#3b82f6',
-      0.5: '#f59e0b',
-      0.8: '#ef4444'
-    }
-  });
-
   // Force Leaflet untuk menghitung ulang ukuran kontainer agar peta tampil penuh
   setTimeout(() => { if (AppState.map) AppState.map.invalidateSize(); }, 50);
   setTimeout(() => { if (AppState.map) AppState.map.invalidateSize(); }, 250);
@@ -82,7 +118,7 @@ function initMap() {
 
 // Helper: Custom Marker Icon dengan Efek Radar Berdenyut
 function createCustomIcon(label) {
-  const markerClass = label === 'hoaks' ? 'marker-hoaks' : (label === 'fakta' ? 'marker-fakta' : 'marker-negatif');
+  const markerClass = label === 'fakta' ? 'marker-fakta' : 'marker-hoaks';
   return L.divIcon({
     className: 'custom-leaflet-pin',
     html: `<div class="marker-pin ${markerClass}"></div>`,
@@ -92,7 +128,12 @@ function createCustomIcon(label) {
   });
 }
 
-// Helper: Dapatkan Link Berita Terkait yang Valid
+// A URL pencarian bukan sumber berita yang sudah diverifikasi.
+function isSearchResultUrl(url) {
+  return /(?:google\.[^/]+\/search|news\.google\.com\/search|turnbackhoax\.id\/?\?s=|twitter\.com\/search|x\.com\/search|tiktok\.com\/search|instagram\.com\/explore\/tags)/i.test(url || '');
+}
+
+// Helper: tautkan sumber asli jika tersedia, selain itu arahkan ke pencarian teks.
 function getRelatedNewsUrl(props) {
   if (props.url && (props.url.startsWith('http://') || props.url.startsWith('https://')) && !props.url.includes('geosentry.id')) {
     return props.url;
@@ -100,24 +141,13 @@ function getRelatedNewsUrl(props) {
   let cleanQuery = (props.teks || '')
     .replace(/^\[.*?\]\s*/, '')
     .replace(/^(Viral|Awas|Waspada|Kabar heboh|Informasi A1|Bongkar|Klarifikasi)[:!]\s*/i, '')
-    .replace(/["'”]/g, '')
-    .slice(0, 75)
+    .replace(/["'”]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 220)
     .trim();
 
   if (!cleanQuery) cleanQuery = props.lokasi_nama || 'berita Indonesia';
-
-  if (props.label === 'hoaks') {
-    return `https://turnbackhoax.id/?s=${encodeURIComponent(cleanQuery)}`;
-  } else if (props.sumber === 'tiktok') {
-    return `https://www.tiktok.com/search?q=${encodeURIComponent(cleanQuery)}`;
-  } else if (props.sumber === 'instagram') {
-    const firstTag = cleanQuery.split(/\s+/)[0] || 'berita';
-    return `https://www.instagram.com/explore/tags/${encodeURIComponent(firstTag)}/`;
-  } else if (props.sumber === 'twitter') {
-    return `https://twitter.com/search?q=${encodeURIComponent(cleanQuery)}&f=live`;
-  } else {
-    return `https://news.google.com/search?q=${encodeURIComponent(cleanQuery)}&hl=id&gl=ID&ceid=ID:id`;
-  }
+  return `https://www.google.com/search?q=${encodeURIComponent(cleanQuery)}`;
 }
 
 // Helper: Dapatkan icon Lucide berdasarkan sumber
@@ -152,9 +182,11 @@ function getAllReferenceLinks(props) {
     if (Array.isArray(refs)) {
       refs.forEach(r => {
         if (typeof r === 'string' && r.startsWith('http')) {
-          add(r, 'Rujukan Terkait', 'external-link', 'RUJUKAN');
+          const isSearch = isSearchResultUrl(r);
+          add(r, isSearch ? 'Hasil pencarian, belum diverifikasi' : 'Sumber rujukan', isSearch ? 'search' : 'external-link', isSearch ? 'Pencarian' : 'Rujukan');
         } else if (r && r.url) {
-          add(r.url, r.judul || 'Rujukan Sumber', getLinkIconBySource(r.sumber), (r.sumber || 'berita').toUpperCase());
+          const isSearch = isSearchResultUrl(r.url);
+          add(r.url, isSearch ? 'Hasil pencarian, belum diverifikasi' : (r.judul || 'Sumber rujukan'), isSearch ? 'search' : getLinkIconBySource(r.sumber), isSearch ? 'Pencarian' : getSourceName(r.sumber));
         }
       });
     }
@@ -162,44 +194,16 @@ function getAllReferenceLinks(props) {
 
   // 2. Tautan utama props.url
   if (props.url && (props.url.startsWith('http://') || props.url.startsWith('https://')) && !props.url.includes('geosentry.id')) {
-    let badgeName = (props.sumber || 'BERITA').toUpperCase();
-    let iconName = getLinkIconBySource(props.sumber);
-    add(props.url, 'Laporan & Sumber Asli', iconName, badgeName);
+    const isSearch = isSearchResultUrl(props.url);
+    let badgeName = isSearch ? 'Pencarian' : getSourceName(props.sumber);
+    let iconName = isSearch ? 'search' : getLinkIconBySource(props.sumber);
+    add(props.url, isSearch ? 'Hasil pencarian, belum diverifikasi' : 'Sumber asli', iconName, badgeName);
   }
 
-  // 3. Cari berita yang SAMA atau SERUPA dari database aktif di peta (Cross-Reference Grouping)
-  if (props.teks && typeof AppState !== 'undefined' && AppState.threats) {
-    const rawWords = props.teks.toLowerCase()
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 4 && !['viral', 'beredar', 'adalah', 'dengan', 'untuk', 'bahwa', 'terkait', 'dalam', 'kota', 'negeri', 'indonesia', 'pemerintah', 'wilayah'].includes(w));
-    
-    const keyTopics = Array.from(new Set(rawWords)).slice(0, 4);
-
-    if (keyTopics.length > 0) {
-      AppState.threats.forEach(otherFeature => {
-        const other = otherFeature.properties;
-        if (other && other.id !== props.id && other.url && !seenUrls.has(other.url)) {
-          const otherText = (other.teks || '').toLowerCase();
-          const matchCount = keyTopics.filter(k => otherText.includes(k)).length;
-          if (matchCount >= 2 || (keyTopics.length === 1 && matchCount === 1)) {
-            let labelBadge = (other.sumber || 'TERKAIT').toUpperCase();
-            let titleText = `Laporan Terkait (${other.lokasi_nama || 'Wilayah Lain'})`;
-            add(other.url, titleText, getLinkIconBySource(other.sumber), labelBadge);
-          }
-        }
-      });
-    }
-  }
-
-  // 4. Pastikan selalu ada tautan periksa fakta / Google News resmi
+  // 3. Jika tidak ada sumber asli, sediakan pencarian teks yang jelas statusnya.
   const fallbackUrl = getRelatedNewsUrl(props);
   if (!seenUrls.has(fallbackUrl)) {
-    if (props.label === 'hoaks') {
-      add(fallbackUrl, 'Klarifikasi Fakta (TurnBackHoax)', 'shield-alert', 'CEK FAKTA');
-    } else {
-      add(fallbackUrl, 'Penelusuran Berita (Google News)', 'search', 'GOOGLE NEWS');
-    }
+    add(fallbackUrl, 'Hasil pencarian, belum diverifikasi', 'search', 'Pencarian');
   }
 
   return links;
@@ -207,69 +211,76 @@ function getAllReferenceLinks(props) {
 
 // Helper: Format Popup Interaktif & Tombol Feedback Loop
 function createPopupContent(props) {
-  const labelColor = props.label === 'hoaks' ? 'text-red-400 bg-red-950/60 border-red-800' : 
-                    (props.label === 'fakta' ? 'text-blue-400 bg-blue-950/60 border-blue-800' : 'text-amber-400 bg-amber-950/60 border-amber-800');
+  const isHumanReviewed = Boolean(props.dikoreksi);
+  const labelColor = props.label === 'hoaks' ? 'text-red-700 bg-red-50 border-red-200' :
+    (props.label === 'fakta' ? 'text-blue-700 bg-blue-50 border-blue-200' :
+      'text-slate-700 bg-slate-100 border-slate-300');
   
-  const probPercent = Math.round((props.probabilitas || 0.5) * 100);
+  const probPercent = Math.round((props.probabilitas ?? 0) * 100);
   const timeStr = new Date(props.dibuat_pada || Date.now()).toLocaleTimeString('id-ID');
 
-  let sumberLabel = '📰 Berita';
-  if (props.sumber === 'twitter') sumberLabel = '🐦 Twitter';
-  else if (props.sumber === 'tiktok') sumberLabel = '📱 TikTok';
-  else if (props.sumber === 'instagram') sumberLabel = '📸 Instagram';
-  else if (props.sumber === 'mastodon') sumberLabel = '🐘 Mastodon';
-  else if (props.sumber === 'bluesky') sumberLabel = '🦋 Bluesky';
-  else if (props.sumber === 'reddit') sumberLabel = '👽 Reddit';
-  else if (props.sumber === 'cek_mandiri') sumberLabel = '✨ Cek Mandiri';
+  const sumberLabel = getSourceName(props.sumber);
+  const classification = getClassificationDisplay(props.label);
 
   const allLinks = getAllReferenceLinks(props);
 
   return `
     <div class="text-xs space-y-2.5 min-w-[270px] max-w-[340px]">
-      <div class="flex items-center justify-between border-b border-slate-700/60 pb-1.5">
-        <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${labelColor}">
-          ${props.label}
+      <div class="flex items-center justify-between border-b border-slate-300 pb-1.5">
+        <span class="px-2 py-0.5 rounded text-xs font-semibold border ${labelColor}">
+          ${classification.text}
         </span>
-        <span class="text-[10px] font-mono text-slate-400">
+        <span class="text-xs text-slate-500">
           ${sumberLabel} &bull; ${timeStr}
         </span>
       </div>
 
-      <p class="text-slate-200 text-xs font-normal leading-relaxed line-clamp-3">
+      <p class="text-slate-800 text-xs font-normal leading-relaxed line-clamp-3">
         "${props.teks}"
       </p>
 
-      <div class="space-y-1">
-        <div class="flex justify-between text-[10px] text-slate-400">
-          <span>Keyakinan AI (SGDClassifier):</span>
-          <span class="font-mono font-bold text-slate-200">${probPercent}%</span>
-        </div>
-        <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-          <div class="h-1.5 rounded-full ${props.label === 'hoaks' ? 'bg-red-500' : (props.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}" style="width: ${probPercent}%"></div>
-        </div>
-      </div>
+      ${props.verifikasi_status === 'prediksi_sementara' ? `
+      <div class="text-xs leading-relaxed text-slate-700 bg-slate-100 border border-slate-300 rounded px-2 py-1.5">
+        Prediksi dari AI; bisa saja keliru dan belum terverifikasi. ${props.verifikasi_dasar || ''}
+      </div>` : props.verifikasi_status === 'terverifikasi' && props.verifikasi_dasar ? `
+      <div class="text-xs leading-relaxed text-slate-700 bg-slate-100 border border-slate-300 rounded px-2 py-1.5">
+        Diperiksa: ${props.verifikasi_dasar}
+      </div>` : ''}
 
-      <div class="flex items-center text-[11px] text-slate-400">
-        <span class="mr-1">📍</span> Lokasi: <strong class="text-slate-200 ml-1">${props.lokasi_nama || 'Nasional'}</strong>
+      ${isHumanReviewed ? `
+      <div class="text-xs leading-relaxed text-slate-700 bg-slate-100 border border-slate-300 rounded px-2 py-1.5">
+        Label ini sudah dikoreksi oleh analis.
+      </div>` : `<div class="space-y-1">
+        <div class="flex justify-between text-xs text-slate-500">
+          <span>Perkiraan keyakinan:</span>
+          <span class="font-semibold text-slate-800">${probPercent}%</span>
+        </div>
+        <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+          <div class="h-1.5 rounded-full ${props.label === 'hoaks' ? 'bg-red-500' : (props.label === 'fakta' ? 'bg-blue-500' : 'bg-slate-500') }" style="width: ${probPercent}%"></div>
+        </div>
+      </div>`}
+
+      <div class="flex items-center text-xs text-slate-500">
+        Lokasi: <strong class="text-slate-800 ml-1">${props.lokasi_nama || 'Nasional'}</strong>
       </div>
 
       <!-- Semua Tautan Referensi Berita Terkait -->
-      <div class="pt-2 border-t border-slate-700/60 space-y-1.5">
-        <div class="flex items-center justify-between text-[10px] text-slate-400">
-          <span class="font-bold uppercase tracking-wider text-cyan-400 flex items-center">
-            <i data-lucide="link-2" class="w-3 h-3 mr-1"></i> Tautan Referensi (${allLinks.length}):
+      <div class="pt-2 border-t border-slate-300 space-y-1.5">
+        <div class="flex items-center justify-between text-xs text-slate-500">
+          <span class="font-semibold text-slate-800 flex items-center">
+            <i data-lucide="link-2" class="w-3 h-3 mr-1"></i> Sumber terkait (${allLinks.length}):
           </span>
-          <span class="text-[9px] text-slate-400 font-mono">Semua Sumber</span>
+          <span class="text-xs text-slate-500">Tautan</span>
         </div>
         <div class="space-y-1 max-h-32 overflow-y-auto pr-0.5">
           ${allLinks.map(l => `
             <a href="${l.url}" target="_blank" rel="noopener noreferrer" 
-               class="flex items-center justify-between px-2 py-1.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900/90 border border-cyan-800/60 text-slate-200 hover:text-white transition group text-[11px] font-medium">
+               class="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 hover:text-slate-900 transition group text-xs font-medium">
               <span class="flex items-center space-x-1.5 truncate mr-1.5">
-                <i data-lucide="${l.icon}" class="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition shrink-0"></i>
+                <i data-lucide="${l.icon}" class="w-3.5 h-3.5 text-slate-700 group-hover:scale-110 transition shrink-0"></i>
                 <span class="truncate max-w-[170px]">${l.title}</span>
               </span>
-              <span class="text-[9px] font-mono uppercase bg-slate-900/90 border border-slate-700/70 px-1 py-0.5 rounded text-cyan-300 shrink-0">
+              <span class="text-xs app-surface border border-slate-300 px-1 py-0.5 rounded text-slate-700 shrink-0">
                 ${l.badge} &rarr;
               </span>
             </a>
@@ -278,19 +289,16 @@ function createPopupContent(props) {
       </div>
 
       <!-- Feedback Loop Koreksi Analis -->
-      <div class="pt-1.5 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
-        <span class="text-[10px] text-emerald-400 font-semibold flex items-center">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 mr-1 animate-pulse"></span> Feedback:
+      <div class="pt-1.5 border-t border-slate-300 flex items-center justify-between gap-1.5">
+        <span class="text-xs text-slate-600 font-semibold flex items-center">
+          Koreksi label:
         </span>
         <div class="flex items-center space-x-1">
-          <button onclick="submitCorrection(${props.id}, 'fakta')" class="px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold transition">
+          <button onclick="submitCorrection(${props.id}, 'fakta')" class="px-2 py-1 rounded bg-blue-700 hover:bg-blue-800 text-slate-100 text-xs font-bold transition">
             Fakta
           </button>
-          <button onclick="submitCorrection(${props.id}, 'hoaks')" class="px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold transition">
+          <button onclick="submitCorrection(${props.id}, 'hoaks')" class="px-2 py-1 rounded bg-red-700 hover:bg-red-800 text-slate-100 text-xs font-bold transition">
             Hoaks
-          </button>
-          <button onclick="submitCorrection(${props.id}, 'negatif')" class="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-bold transition">
-            Negatif
           </button>
         </div>
       </div>
@@ -303,6 +311,7 @@ function createPopupContent(props) {
 // ==========================================
 
 function addThreatToMap(feature, autoFly = false) {
+  if (!['hoaks', 'fakta'].includes(feature?.properties?.label)) return;
   const id = feature.properties.id;
   AppState.threats.set(id, feature);
 
@@ -322,27 +331,26 @@ function addThreatToMap(feature, autoFly = false) {
 
   AppState.markers.set(id, marker);
 
-  if (isFeatureMatchFilter(feature) && AppState.activeLayer === 'markers') {
+  if (isFeatureMatchFilter(feature) && AppState.markersVisible) {
     marker.addTo(AppState.map);
   }
 
-  if (autoFly) {
+  if (autoFly && AppState.markersVisible) {
     AppState.map.flyTo([lat, lon], Math.max(AppState.map.getZoom(), 7), {
       duration: 1.2
     });
     setTimeout(() => marker.openPopup(), 1200);
   }
 
-  updateHeatmapData();
   prependThreatToFeed(feature.properties, true);
 }
 
 function isFeatureMatchFilter(feature) {
-  const { label, sumber, search, provinsi } = AppState.currentFilter;
+  const { label, search, provinsi } = AppState.currentFilter;
   const p = feature.properties;
 
   const matchLabel = label === 'all' || p.label === label;
-  const matchSumber = sumber === 'all' || p.sumber === sumber;
+  const supportedLabel = ['hoaks', 'fakta'].includes(p.label);
   
   // Filter Provinsi
   let matchProv = true;
@@ -382,34 +390,20 @@ function isFeatureMatchFilter(feature) {
     matchSearch = textMatch || locMatch || labelMatch;
   }
 
-  return matchLabel && matchSumber && matchProv && matchSearch;
+  return supportedLabel && matchLabel && matchProv && matchSearch;
 }
 
 function applyFilters() {
   AppState.markers.forEach((marker, id) => {
     const feature = AppState.threats.get(id);
-    if (feature && isFeatureMatchFilter(feature) && AppState.activeLayer === 'markers') {
+    if (feature && isFeatureMatchFilter(feature) && AppState.markersVisible) {
       if (!AppState.map.hasLayer(marker)) marker.addTo(AppState.map);
     } else {
       if (AppState.map.hasLayer(marker)) AppState.map.removeLayer(marker);
     }
   });
 
-  updateHeatmapData();
   renderFeedList();
-}
-
-function updateHeatmapData() {
-  const heatPoints = [];
-  AppState.threats.forEach((feature) => {
-    if (isFeatureMatchFilter(feature) && feature.geometry && feature.geometry.coordinates) {
-      const [lon, lat] = feature.geometry.coordinates;
-      const weight = feature.properties.label === 'hoaks' ? 0.9 : 
-                    (feature.properties.label === 'negatif' ? 0.7 : 0.4);
-      heatPoints.push([lat, lon, weight]);
-    }
-  });
-  AppState.heatLayer.setLatLngs(heatPoints);
 }
 
 // ==========================================
@@ -421,10 +415,10 @@ function initCharts() {
   AppState.chartCategory = new Chart(ctxCat, {
     type: 'doughnut',
     data: {
-      labels: ['Hoaks', 'Fakta', 'Negatif'],
+      labels: ['Hoaks', 'Fakta'],
       datasets: [{
-        data: [0, 0, 0],
-        backgroundColor: ['#ef4444', '#3b82f6', '#f59e0b'],
+        data: [0, 0],
+        backgroundColor: ['#ef4444', '#3b82f6'],
         borderWidth: 0,
         hoverOffset: 6
       }]
@@ -436,84 +430,12 @@ function initCharts() {
       plugins: {
         legend: {
           position: 'right',
-          labels: { color: '#cbd5e1', font: { size: 10, family: 'Plus Jakarta Sans' }, boxWidth: 10 }
+          labels: { color: document.documentElement.dataset.theme === 'dark' ? '#cbd5e1' : '#475569', font: { size: 11, family: 'Inter, system-ui, sans-serif' }, boxWidth: 10 }
         }
       }
     }
   });
 
-  const ctxReg = document.getElementById('chart-regions').getContext('2d');
-  AppState.chartRegions = new Chart(ctxReg, {
-    type: 'bar',
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: 'Hoaks',
-          data: [],
-          backgroundColor: '#ef4444',
-          borderRadius: 3
-        },
-        {
-          label: 'Fakta',
-          data: [],
-          backgroundColor: '#3b82f6',
-          borderRadius: 3
-        },
-        {
-          label: 'Negatif',
-          data: [],
-          backgroundColor: '#f59e0b',
-          borderRadius: 3
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      indexAxis: 'y',
-      onHover: (event, chartElement) => {
-        event.native.target.style.cursor = chartElement && chartElement.length ? 'pointer' : 'default';
-      },
-      onClick: (event, elements) => {
-        if (elements && elements.length > 0) {
-          const index = elements[0].index;
-          const regionName = AppState.chartRegions.data.labels[index];
-          if (regionName) {
-            zoomToRegion(regionName);
-          }
-        }
-      },
-      scales: {
-        x: { 
-          stacked: true,
-          grid: { color: 'rgba(51, 65, 85, 0.4)' }, 
-          ticks: { color: '#94a3b8', font: { size: 9 }, stepSize: 2 } 
-        },
-        y: { 
-          stacked: true,
-          grid: { display: false }, 
-          ticks: { color: '#e2e8f0', font: { size: 10, weight: 'bold' } } 
-        }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          mode: 'index',
-          intersect: false,
-          callbacks: {
-            footer: (tooltipItems) => {
-              let sum = 0;
-              tooltipItems.forEach(item => {
-                sum += item.parsed.x;
-              });
-              return `Total: ${sum} isu (Klik untuk menuju lokasi)`;
-            }
-          }
-        }
-      }
-    }
-  });
 }
 
 function updateChartsAndStats(stats) {
@@ -521,7 +443,6 @@ function updateChartsAndStats(stats) {
   document.getElementById('stat-total').innerText = totalActive;
   document.getElementById('stat-hoaks').innerText = stats.hoaks || 0;
   document.getElementById('stat-fakta').innerText = stats.fakta || 0;
-  document.getElementById('stat-negatif').innerText = stats.negatif || 0;
 
   const viralActiveEl = document.getElementById('viral-active-count');
   if (viralActiveEl) viralActiveEl.innerText = totalActive;
@@ -534,157 +455,27 @@ function updateChartsAndStats(stats) {
   if (AppState.chartCategory) {
     AppState.chartCategory.data.datasets[0].data = [
       stats.hoaks || 0,
-      stats.fakta || 0,
-      stats.negatif || 0
+      stats.fakta || 0
     ];
     AppState.chartCategory.update();
   }
 
-  // Update grafik stacked bar Wilayah Terpanas dengan data faktual per kategori
-  if (AppState.chartRegions && stats.top_regions) {
-    AppState.chartRegions.data.labels = stats.top_regions.map(r => r.lokasi_nama);
-    AppState.chartRegions.data.datasets[0].data = stats.top_regions.map(r => parseInt(r.hoaks || 0, 10));
-    AppState.chartRegions.data.datasets[1].data = stats.top_regions.map(r => parseInt(r.fakta || 0, 10));
-    AppState.chartRegions.data.datasets[2].data = stats.top_regions.map(r => parseInt(r.negatif || 0, 10));
-    AppState.chartRegions.update();
-  }
-
-  // Tampilkan fakta wilayah terbanyak per kategori (Hoaks, Fakta, Sentimen Negatif)
-  if (stats.top_category_leaders) {
-    const elH = document.getElementById('top-fact-hoaks');
-    const elF = document.getElementById('top-fact-fakta');
-    const elN = document.getElementById('top-fact-negatif');
-    if (elH && stats.top_category_leaders.hoaks) {
-      elH.innerText = `${stats.top_category_leaders.hoaks.lokasi_nama} (${stats.top_category_leaders.hoaks.count})`;
-    }
-    if (elF && stats.top_category_leaders.fakta) {
-      elF.innerText = `${stats.top_category_leaders.fakta.lokasi_nama} (${stats.top_category_leaders.fakta.count})`;
-    }
-    if (elN && stats.top_category_leaders.negatif) {
-      elN.innerText = `${stats.top_category_leaders.negatif.lokasi_nama} (${stats.top_category_leaders.negatif.count})`;
-    }
-  }
 }
 
-// Navigasi Kamera Peta Langsung ke Wilayah Terpanas Saat Diklik
-function zoomToRegion(regionName) {
-  if (!regionName || regionName === '-' || regionName === 'Nasional') return;
-
-  const cleanName = regionName.split('(')[0].trim();
-  const searchKey = cleanName.toLowerCase();
-
-  let targetLat = null;
-  let targetLon = null;
-  let targetMarker = null;
-  let matchingCount = 0;
-
-  // 1. Cari titik ancaman aktif di AppState.threats yang cocok dengan wilayah ini
-  for (const [id, feat] of AppState.threats.entries()) {
-    const loc = (feat.properties.lokasi_nama || '').toLowerCase();
-    if (loc.includes(searchKey) || searchKey.includes(loc.split(' ')[0])) {
-      matchingCount++;
-      if (targetLat === null && feat.geometry && feat.geometry.coordinates) {
-        targetLon = feat.geometry.coordinates[0];
-        targetLat = feat.geometry.coordinates[1];
-        targetMarker = AppState.markers.get(id);
-      }
-    }
-  }
-
-  // 2. Fallback: jika tidak ada di threats aktif, cari di AppState.provinces
-  if (targetLat === null && AppState.provinces && Array.isArray(AppState.provinces)) {
-    const prov = AppState.provinces.find(p => 
-      p.provinsi.toLowerCase().includes(searchKey) || searchKey.includes(p.provinsi.toLowerCase())
-    );
-    if (prov && prov.center_lat && prov.center_lon) {
-      targetLat = prov.center_lat;
-      targetLon = prov.center_lon;
-      matchingCount = prov.total || 0;
-    }
-  }
-
-  // 3. Fallback koordinat kota & daerah strategis Indonesia
-  if (targetLat === null) {
-    const CITY_COORDS = {
-      'jayapura': [-2.5489, 140.7167],
-      'jakarta': [-6.2088, 106.8456],
-      'jakarta pusat': [-6.1805, 106.8284],
-      'bandung': [-6.9175, 107.6191],
-      'surabaya': [-7.2575, 112.7521],
-      'semarang': [-6.9667, 110.4167],
-      'palembang': [-2.9761, 104.7754],
-      'makassar': [-5.1477, 119.4327],
-      'medan': [3.5952, 98.6722],
-      'yogyakarta': [-7.7956, 110.3695],
-      'denpasar': [-8.6705, 115.2126],
-      'mataram': [-8.5833, 116.1167],
-      'padang': [-0.9471, 100.4172],
-      'pekanbaru': [0.5071, 101.4478],
-      'banjarmasin': [-3.3194, 114.5908],
-      'pontianak': [-0.0263, 109.3425],
-      'samarinda': [-0.5022, 117.1536],
-      'balikpapan': [-1.2379, 116.8289],
-      'manado': [1.4748, 124.8421],
-      'ambon': [-3.6547, 128.1906],
-      'kupang': [-10.1772, 123.6070]
-    };
-    for (const [cName, coords] of Object.entries(CITY_COORDS)) {
-      if (searchKey.includes(cName) || cName.includes(searchKey)) {
-        targetLat = coords[0];
-        targetLon = coords[1];
-        break;
-      }
-    }
-  }
-
-  // 4. Lakukan animasi flyTo
-  if (targetLat !== null && targetLon !== null) {
-    // Pastikan layer marker aktif
-    if (AppState.activeLayer === 'heat') {
-      const btnMarkers = document.getElementById('btn-layer-markers');
-      if (btnMarkers) btnMarkers.click();
-    }
-
-    AppState.map.flyTo([targetLat, targetLon], 9, {
-      duration: 1.4,
-      easeLinearity: 0.25
-    });
-
-    if (targetMarker) {
-      setTimeout(() => {
-        targetMarker.openPopup();
-      }, 1400);
-
-      // Scroll Feed radar ke berita wilayah tersebut
-      const feedItem = document.getElementById(`feed-item-${targetMarker.feature?.properties?.id}`);
-      if (feedItem) {
-        feedItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        feedItem.classList.add('ring-2', 'ring-cyan-400');
-        setTimeout(() => feedItem.classList.remove('ring-2', 'ring-cyan-400'), 2500);
-      }
-    }
-
-    showToast(`📍 Menuju Wilayah Terpanas: ${cleanName} (${matchingCount} isu aktif)`);
-  } else {
-    showToast(`Wilayah ${cleanName} terpantau tetapi koordinat tidak ditemukan.`);
-  }
-}
-
-// ==========================================
 // 4. FEED RADAR TICKER
 // ==========================================
 
 function prependThreatToFeed(props, isNew = false) {
+  if (!['hoaks', 'fakta'].includes(props?.label)) return;
   const container = document.getElementById('feed-container');
   const emptyMsg = document.getElementById('empty-feed-msg');
   if (emptyMsg) emptyMsg.remove();
 
-  const labelColor = props.label === 'hoaks' ? 'border-l-red-500 text-red-400' : 
-                    (props.label === 'fakta' ? 'border-l-blue-500 text-blue-400' : 'border-l-amber-500 text-amber-400');
+  const labelColor = props.label === 'hoaks' ? 'border-l-red-500 text-red-800' : 'border-l-blue-500 text-blue-800';
   
   const div = document.createElement('div');
   div.id = `feed-item-${props.id}`;
-  div.className = `p-2.5 rounded-lg bg-slate-900/90 border border-slate-800/80 border-l-4 ${labelColor} text-xs transition cursor-pointer hover:bg-slate-800/80 ${isNew ? 'threat-item-new' : ''}`;
+  div.className = `p-2.5 rounded-lg app-surface border border-slate-200 border-l-4 ${labelColor} text-xs transition cursor-pointer hover:bg-slate-100 ${isNew ? 'threat-item-new' : ''}`;
   
   div.onclick = () => {
     const marker = AppState.markers.get(props.id);
@@ -694,36 +485,30 @@ function prependThreatToFeed(props, isNew = false) {
     }
   };
 
-  let sumberIcon = '📰 Berita';
-  if (props.sumber === 'twitter') sumberIcon = '🐦 Twitter';
-  else if (props.sumber === 'tiktok') sumberIcon = '📱 TikTok';
-  else if (props.sumber === 'instagram') sumberIcon = '📸 Instagram';
-  else if (props.sumber === 'mastodon') sumberIcon = '🐘 Mastodon';
-  else if (props.sumber === 'bluesky') sumberIcon = '🦋 Bluesky';
-  else if (props.sumber === 'reddit') sumberIcon = '👽 Reddit';
-  else if (props.sumber === 'cek_mandiri') sumberIcon = '✨ Cek Mandiri';
+  const sourceName = getSourceName(props.sumber);
+  const labelName = getClassificationDisplay(props.label).text;
 
   const allRefs = getAllReferenceLinks(props);
   const primaryLink = allRefs[0] ? allRefs[0].url : getRelatedNewsUrl(props);
-  const refCountText = allRefs.length > 1 ? `🔗 ${allRefs.length} Rujukan` : (props.sumber || 'BERITA').toUpperCase();
+  const refCountText = allRefs.length > 1 ? `${allRefs.length} tautan` : (allRefs[0]?.badge || sourceName);
 
   div.innerHTML = `
     <div class="flex items-center justify-between mb-1">
-      <span class="font-bold uppercase text-[10px] tracking-wider">${props.label}</span>
-      <span class="text-[10px] text-slate-400 font-mono">📍 ${props.lokasi_nama || 'Nasional'}</span>
+      <span class="font-semibold text-xs">${labelName}${props.verifikasi_status === 'prediksi_sementara' ? ' · Sementara' : ''}</span>
+      <span class="text-xs text-slate-500">${props.lokasi_nama || 'Nasional'}</span>
     </div>
-    <p class="text-slate-300 line-clamp-2 leading-relaxed">
+    <p class="text-slate-700 line-clamp-2 leading-relaxed">
       ${props.teks}
     </p>
-    <div class="mt-1.5 flex items-center justify-between text-[10px] text-slate-400">
-      <span class="flex items-center space-x-1">${sumberIcon}</span>
+    <div class="mt-1.5 flex items-center justify-between text-xs text-slate-500">
+      <span class="flex items-center space-x-1">${sourceName}</span>
       <a href="${primaryLink}" target="_blank" rel="noopener noreferrer" 
          onclick="event.stopPropagation();" 
-         class="text-cyan-400 hover:text-cyan-200 transition flex items-center space-x-1 hover:underline font-semibold bg-cyan-950/70 px-1.5 py-0.5 rounded border border-cyan-800/50">
+         class="text-slate-700 hover:text-slate-900 transition flex items-center space-x-1 hover:underline font-semibold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
         <span>${refCountText}</span>
         <i data-lucide="external-link" class="w-2.5 h-2.5 ml-0.5"></i>
       </a>
-      <span class="font-mono text-slate-500">Conf: ${Math.round((props.probabilitas || 0.5) * 100)}%</span>
+      <span class="text-slate-500">Perkiraan ${Math.round((props.probabilitas || 0.5) * 100)}%</span>
     </div>
   `;
 
@@ -742,8 +527,8 @@ function renderFeedList() {
   if (filtered.length === 0) {
     container.innerHTML = `
       <div id="empty-feed-msg" class="text-center py-10 text-slate-500 text-xs">
-        <i data-lucide="satellite" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
-        Tidak ada data ancaman yang cocok dengan pencarian / filter.
+        <i data-lucide="newspaper" class="w-8 h-8 mx-auto mb-2 opacity-40"></i>
+        Tidak ada berita yang cocok dengan pilihan ini.
       </div>
     `;
     lucide.createIcons();
@@ -801,7 +586,7 @@ async function runNewsAnalysis(saveToMap = true) {
   // Deteksi jika input adalah URL Media Sosial (TikTok, Instagram, YouTube, X, dll)
   const isUrl = /^https?:\/\//i.test(text);
   if (isUrl) {
-    if (btnPlotText) btnPlotText.innerText = '⚡ Menarik Data Medsos via yt-dlp & Cek Hoaks...';
+    if (btnPlotText) btnPlotText.innerText = 'Membaca postingan dan mencari sumber...';
     try {
       const res = await fetch('/api/social/inspect-url', {
         method: 'POST',
@@ -809,7 +594,7 @@ async function runNewsAnalysis(saveToMap = true) {
         body: JSON.stringify({ url: text, save_to_map: saveToMap })
       });
       const respData = await res.json();
-      if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
+      if (btnPlotText) btnPlotText.innerText = 'Analisis teks & cari sumber terkait';
 
       if (respData.success && respData.data) {
         const item = respData.data;
@@ -819,16 +604,15 @@ async function runNewsAnalysis(saveToMap = true) {
         // Update Badge Klasifikasi
         const badge = document.getElementById('res-badge');
         if (badge) {
-          if (item.label === 'hoaks') {
-            badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-red-950 text-red-400 border border-red-800';
-            badge.innerText = `🔴 TERDETEKSI HOAKS (${item.sumber.toUpperCase()})`;
-          } else if (item.label === 'fakta') {
-            badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-blue-950 text-blue-400 border border-blue-800';
-            badge.innerText = `🔵 FAKTA / BERITA VALID (${item.sumber.toUpperCase()})`;
+          const display = getClassificationDisplay(item.label);
+          if (display.color === 'red') {
+            badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-700 border border-red-200';
+          } else if (display.color === 'blue') {
+            badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200';
           } else {
-            badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-950 text-amber-400 border border-amber-800';
-            badge.innerText = `🟡 SENTIMEN NEGATIF (${item.sumber.toUpperCase()})`;
+            badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300';
           }
+          badge.innerText = `${display.text} · ${getSourceName(item.sumber)}`;
         }
 
         // Update Confidence Bar
@@ -838,7 +622,7 @@ async function runNewsAnalysis(saveToMap = true) {
         const bar = document.getElementById('res-prob-bar');
         if (bar) {
           bar.style.width = `${confPercent}%`;
-          bar.className = `h-2 rounded-full transition-all duration-500 ${item.label === 'hoaks' ? 'bg-red-500' : (item.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}`;
+          bar.className = `h-2 rounded-full transition-all duration-500 ${item.label === 'hoaks' ? 'bg-red-500' : (item.label === 'fakta' ? 'bg-blue-500' : 'bg-slate-500')}`;
         }
 
         // Update Origin
@@ -849,10 +633,10 @@ async function runNewsAnalysis(saveToMap = true) {
         const spreadersList = document.getElementById('res-spreaders-list');
         if (spreadersList) {
           spreadersList.innerHTML = `
-            <span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-mono text-[10px]">
-              📱 Engine: ${item.engine_used} • ${item.sumber.toUpperCase()}
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 text-xs">
+              Sumber: ${getSourceName(item.sumber)}
             </span>
-            <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-mono text-[10px] truncate max-w-xs block mt-1">
+            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 text-xs truncate max-w-xs block mt-1">
               "${item.title || item.teks.slice(0, 50)}"
             </span>
           `;
@@ -863,7 +647,7 @@ async function runNewsAnalysis(saveToMap = true) {
         const newsLinkLabel = document.getElementById('res-news-link-label');
         if (newsLinkEl && item.url) {
           newsLinkEl.href = item.url;
-          if (newsLinkLabel) newsLinkLabel.innerText = `Buka Postingan ${item.sumber.toUpperCase()} ↗`;
+          if (newsLinkLabel) newsLinkLabel.innerText = `Buka postingan ${getSourceName(item.sumber)} ↗`;
         }
 
         // Animasi peta flyTo
@@ -871,17 +655,17 @@ async function runNewsAnalysis(saveToMap = true) {
           AppState.map.flyTo([item.lat, item.lon], 8, { duration: 1.5 });
         }
 
-        showToast(`[yt-dlp] Postingan ${item.sumber.toUpperCase()} berhasil dianalisis: ${item.label.toUpperCase()} (${item.lokasi_nama})`);
+        showToast(`Postingan ${getSourceName(item.sumber)} dianalisis: ${getClassificationDisplay(item.label).text} (${item.lokasi_nama})`);
         fetchStats();
         return;
       }
     } catch (err) {
       console.error('[!] Error inspect social url:', err);
-      if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
+      if (btnPlotText) btnPlotText.innerText = 'Analisis teks & cari sumber terkait';
     }
   }
 
-  if (btnPlotText) btnPlotText.innerText = '⚡ AI Sedang Menganalisis & Melacak Sebaran...';
+    if (btnPlotText) btnPlotText.innerText = 'Menganalisis teks...';
 
   try {
     const res = await fetch('/api/analyze', {
@@ -890,7 +674,7 @@ async function runNewsAnalysis(saveToMap = true) {
       body: JSON.stringify({ text, save: saveToMap })
     });
     const data = await res.json();
-    if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
+    if (btnPlotText) btnPlotText.innerText = 'Analisis teks & cari sumber terkait';
 
     if (data.success && data.analysis) {
       const a = data.analysis;
@@ -901,18 +685,23 @@ async function runNewsAnalysis(saveToMap = true) {
       if (resultBox) resultBox.classList.remove('hidden');
 
       // Update Badge Klasifikasi
+      const unconfirmed = a.verifikasi_status !== 'terverifikasi' ||
+        /prediksi|belum terkonfirmasi|belum terverifikasi/i.test(a.analysis_basis || '');
       const badge = document.getElementById('res-badge');
       if (badge) {
-        if (a.label === 'hoaks') {
-          badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-red-950 text-red-400 border border-red-800';
-          badge.innerText = '🔴 TERDETEKSI HOAKS';
-        } else if (a.label === 'fakta') {
-          badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-blue-950 text-blue-400 border border-blue-800';
-          badge.innerText = '🔵 FAKTA / BERITA VALID';
+        const display = getClassificationDisplay(a.label);
+        const labelText = display.text;
+        const labelColor = display.color;
+        if (labelColor === 'red') {
+          badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-red-50 text-red-700 border border-red-200';
+        } else if (labelColor === 'blue') {
+          badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200';
         } else {
-          badge.className = 'px-2.5 py-0.5 rounded text-[11px] font-bold uppercase bg-amber-950 text-amber-400 border border-amber-800';
-          badge.innerText = '🟡 SENTIMEN NEGATIF / PROVOKASI';
+          badge.className = 'px-2.5 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300';
         }
+        badge.innerText = unconfirmed
+          ? `Prediksi sementara · ${labelText}`
+          : labelText;
       }
 
       // Update Confidence Bar
@@ -922,21 +711,60 @@ async function runNewsAnalysis(saveToMap = true) {
       const bar = document.getElementById('res-prob-bar');
       if (bar) {
         bar.style.width = `${confPercent}%`;
-        bar.className = `h-2 rounded-full transition-all duration-500 ${a.label === 'hoaks' ? 'bg-red-500' : (a.label === 'fakta' ? 'bg-blue-500' : 'bg-amber-500')}`;
+        bar.className = `h-2 rounded-full transition-all duration-500 ${a.label === 'hoaks' ? 'bg-red-500' : (a.label === 'fakta' ? 'bg-blue-500' : 'bg-slate-500')}`;
+      }
+
+      const basisEl = document.getElementById('res-analysis-basis');
+      if (basisEl) basisEl.textContent = a.label === 'negatif'
+        ? 'Bukti yang ditemukan belum cukup untuk menetapkan klaim sebagai fakta atau hoaks.'
+        : (a.analysis_basis || 'Prediksi dari isi teks; belum ada dasar sumber yang ditampilkan.');
+      const sourceList = document.getElementById('res-related-sources');
+      if (sourceList) {
+        sourceList.replaceChildren();
+        const sourceHeading = document.createElement('p');
+        sourceHeading.className = 'text-xs font-semibold text-slate-700';
+        sourceHeading.textContent = `Berita dan sumber yang dibandingkan (${a.related_sources?.length || 0})`;
+        sourceList.appendChild(sourceHeading);
+        if (a.related_sources?.length) {
+          a.related_sources.forEach((source) => {
+            let url;
+            try {
+              url = new URL(source.url);
+              if (!['http:', 'https:'].includes(url.protocol)) return;
+            } catch (_) { return; }
+            const link = document.createElement('a');
+            link.href = url.href;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'block rounded-md app-surface-soft px-2 py-1.5 text-xs text-slate-800 hover:text-slate-900';
+            const sourceLabel = getClassificationDisplay(source.label);
+            const label = source.label ? ` · ${sourceLabel.text}` : '';
+            const sourceStatus = source.verification_status === 'terverifikasi' ? ' · Diperiksa' : ' · Prediksi sementara';
+            const type = source.content_type === 'postingan' ? 'Media sosial' : 'Berita';
+            const match = Number.isFinite(Number(source.relevance)) ? ` · kecocokan ${Math.round(source.relevance * 100)}%` : '';
+            link.textContent = `${type}: ${source.source || source.domain} — ${source.title}${label}${sourceStatus}${match}`;
+            sourceList.appendChild(link);
+          });
+        } else {
+          const noSource = document.createElement('p');
+          noSource.className = 'text-xs text-slate-500';
+          noSource.textContent = 'Belum ditemukan berita atau postingan yang cukup cocok. Keyakinan label diturunkan.';
+          sourceList.appendChild(noSource);
+        }
       }
 
       // Update Info Episentrum Pembuat (Origin)
-      const originName = a.origin ? a.origin.nama : (a.lokasi ? a.lokasi.nama : 'Nasional');
+      const originName = a.origin ? a.origin.nama : (a.lokasi ? a.lokasi.nama : 'Tidak disebut dalam teks');
       const originEl = document.getElementById('res-origin');
       if (originEl) originEl.innerText = originName;
 
       // Update Info Titik-Titik Penyebar (Spreaders)
       const spreadersList = document.getElementById('res-spreaders-list');
-      if (spreadersList && a.spreaders && a.spreaders.length > 0) {
-        spreadersList.innerHTML = a.spreaders.map(s => {
+      if (spreadersList) {
+        spreadersList.innerHTML = a.spreaders && a.spreaders.length > 0 ? a.spreaders.map(s => {
           const cName = s.nama.split('(')[0].trim();
-          return `<span class="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-mono text-[10px]">📍 ${cName}</span>`;
-        }).join('');
+          return `<span class="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-300 text-xs">${cName}</span>`;
+        }).join('') : '<span class="text-slate-500 text-xs">Tidak ada data sebaran untuk teks ini.</span>';
       }
 
       // Update Link Rujukan Berita Terkait Langsung
@@ -946,9 +774,9 @@ async function runNewsAnalysis(saveToMap = true) {
       if (newsLinkEl && newsUrl) {
         newsLinkEl.href = newsUrl;
         if (newsLinkLabel) {
-          newsLinkLabel.innerText = a.label === 'hoaks' 
-            ? 'Cek Fakta di TurnBackHoax ↗' 
-            : (a.label === 'fakta' ? 'Buka Berita di Google News ↗' : 'Pantau Isu Terkait ↗');
+          newsLinkLabel.innerText = a.url_type === 'search'
+            ? 'Cari sumber dari teks ini ↗'
+            : 'Buka sumber asli ↗';
         }
       }
       if (window.lucide && typeof lucide.createIcons === 'function') {
@@ -963,7 +791,7 @@ async function runNewsAnalysis(saveToMap = true) {
           addThreatToMap(feat, false);
         });
 
-        // Hitung batas geografis (LatLngBounds) yang mencakup seluruh titik origin + spreader
+        // Hitung batas peta dari titik lokasi yang benar-benar disebutkan.
         const bounds = L.latLngBounds();
         let originCoord = null;
         let originId = null;
@@ -992,27 +820,29 @@ async function runNewsAnalysis(saveToMap = true) {
           if (modalEl) modalEl.classList.add('hidden');
           if (textInput) textInput.value = '';
 
-          // Arahkan kamera peta ke seluruh titik sebaran di Indonesia
-          if (bounds.isValid()) {
+          // Arahkan kamera ke lokasi yang benar-benar disebutkan.
+          if (AppState.markersVisible && bounds.isValid()) {
             AppState.map.fitBounds(bounds, { padding: [60, 60], maxZoom: 8, duration: 1.5 });
           }
 
           // Buka popup pada episentrum pembuat
           setTimeout(() => {
-            if (originId && AppState.markers.has(originId)) {
+            if (AppState.markersVisible && originId && AppState.markers.has(originId)) {
               AppState.markers.get(originId).openPopup();
             }
           }, 1200);
         }, 2000);
 
-        // Update statistik & grafik wilayah terpanas secara langsung
+        // Perbarui statistik dashboard setelah data tersimpan.
         fetchStats();
+      } else if (saveToMap) {
+        showToast('Lokasi tidak disebut dalam teks, jadi hasil tidak ditambahkan ke peta.');
       }
     } else {
       alert(data.error || 'Gagal menganalisis teks.');
     }
   } catch (err) {
-    if (btnPlotText) btnPlotText.innerText = '⚡ Analisis AI & Lacak Titik Sebaran di Peta 🚀';
+    if (btnPlotText) btnPlotText.innerText = 'Analisis teks & cari sumber terkait';
     console.error('[!] Error saat menganalisis berita:', err);
     alert('Terjadi kesalahan koneksi saat menganalisis berita.');
   }
@@ -1049,15 +879,15 @@ function initWebSocket() {
   const wsStatus = document.getElementById('ws-status');
 
   AppState.socket.on('connect', () => {
-    wsIndicator.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
-    wsStatus.className = 'text-[10px] text-emerald-400 font-medium';
-    wsStatus.innerText = 'Socket Live';
+    wsIndicator.className = 'w-2 h-2 rounded-full bg-slate-500';
+    wsStatus.className = 'text-xs text-slate-600 font-medium';
+    wsStatus.innerText = 'Terhubung';
   });
 
   AppState.socket.on('disconnect', () => {
     wsIndicator.className = 'w-2 h-2 rounded-full bg-red-500';
-    wsStatus.className = 'text-[10px] text-red-400 font-medium';
-    wsStatus.innerText = 'Terputus';
+    wsStatus.className = 'text-xs text-red-700 font-medium';
+    wsStatus.innerText = 'Tidak terhubung';
   });
 
   AppState.socket.on('new_threat', (feature) => {
@@ -1097,7 +927,6 @@ function initWebSocket() {
     AppState.threats.clear();
     AppState.markers.forEach(m => AppState.map.removeLayer(m));
     AppState.markers.clear();
-    updateHeatmapData();
     renderFeedList();
     fetchInitialThreats();
     fetchStats();
@@ -1139,7 +968,6 @@ function purgeExpiredThreatsClient() {
   });
   if (purgedCount > 0) {
     console.log(`[🧹 Purge Klien] ${purgedCount} titik berita >24 jam otomatis dihilangkan dari peta.`);
-    updateHeatmapData();
     renderFeedList();
     fetchStats();
   }
@@ -1185,7 +1013,7 @@ async function loadProvinces() {
       const selectProv = document.getElementById('filter-provinsi');
       if (selectProv) {
         const curVal = AppState.currentFilter.provinsi || 'all';
-        selectProv.innerHTML = '<option value="all">🇮🇩 Seluruh Indonesia (38 Provinsi)</option>';
+        selectProv.innerHTML = '<option value="all">Semua provinsi</option>';
         data.forEach(p => {
           const opt = document.createElement('option');
           opt.value = p.provinsi;
@@ -1215,7 +1043,7 @@ function renderProvinceCards(provincesList) {
   container.innerHTML = '';
   if (!provincesList || provincesList.length === 0) {
     container.innerHTML = `
-      <div class="col-span-full py-12 text-center text-slate-400 text-xs">
+      <div class="col-span-full py-12 text-center text-slate-500 text-xs">
         <i data-lucide="map-pin-off" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
         Tidak ada data provinsi yang cocok dengan pencarian.
       </div>
@@ -1230,41 +1058,38 @@ function renderProvinceCards(provincesList) {
     
     card.className = `p-3 rounded-xl border transition cursor-pointer flex flex-col justify-between group ${
       isActive 
-        ? 'bg-cyan-950/80 border-cyan-400 shadow-lg shadow-cyan-900/40 ring-1 ring-cyan-400' 
-        : 'bg-slate-900/90 border-slate-800 hover:border-cyan-500/60 hover:bg-slate-800'
+        ? 'bg-slate-100 border-slate-300'
+        : 'app-surface border-slate-200 hover:border-slate-300 hover:bg-slate-200'
     }`;
 
     card.innerHTML = `
       <div class="flex items-start justify-between mb-2">
         <div class="flex items-center space-x-2">
-          <div class="w-7 h-7 rounded-lg bg-slate-800 group-hover:bg-cyan-900/60 border border-slate-700 group-hover:border-cyan-500/50 flex items-center justify-center shrink-0 transition">
-            <i data-lucide="map-pin" class="w-3.5 h-3.5 ${isActive ? 'text-cyan-400' : 'text-slate-400 group-hover:text-cyan-300'}"></i>
+          <div class="w-7 h-7 rounded-lg bg-slate-100 group-hover:bg-slate-200 border border-slate-300 group-hover:border-slate-300 flex items-center justify-center shrink-0 transition">
+            <i data-lucide="map-pin" class="w-3.5 h-3.5 ${isActive ? 'text-slate-700' : 'text-slate-500 group-hover:text-slate-900'}"></i>
           </div>
           <div>
-            <h4 class="text-xs font-bold text-slate-100 group-hover:text-cyan-200 transition">${prov.provinsi}</h4>
-            <span class="text-[10px] text-slate-400 font-mono">Pusat: [${prov.center_lat || '-'}, ${prov.center_lon || '-'}]</span>
+            <h4 class="text-xs font-bold text-slate-900 group-hover:text-slate-900 transition">${prov.provinsi}</h4>
+            <span class="text-xs text-slate-500">Data 24 jam terakhir</span>
           </div>
         </div>
-        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
-          prov.total > 0 ? 'bg-cyan-950 text-cyan-300 border border-cyan-800/80' : 'bg-slate-800 text-slate-400'
+        <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${
+          prov.total > 0 ? 'bg-slate-100 text-slate-700 border border-slate-300' : 'bg-slate-100 text-slate-500'
         }">
-          ${prov.total} Berita
+          ${prov.total} berita
         </span>
       </div>
 
       <!-- Kategori Breakdown Badges -->
-      <div class="flex items-center space-x-1.5 text-[10px] pt-2 border-t border-slate-800/80">
-        <span class="px-1.5 py-0.5 rounded bg-red-950/60 border border-red-900/50 text-red-400 font-mono" title="Hoaks">
-          🔴 ${prov.hoaks || 0}
+      <div class="flex items-center space-x-1.5 text-xs pt-2 border-t border-slate-200">
+        <span class="px-1.5 py-0.5 rounded bg-red-50 border border-red-200 text-red-700 font-semibold" title="Hoaks">
+          Hoaks ${prov.hoaks || 0}
         </span>
-        <span class="px-1.5 py-0.5 rounded bg-blue-950/60 border border-blue-900/50 text-blue-400 font-mono" title="Fakta">
-          🔵 ${prov.fakta || 0}
-        </span>
-        <span class="px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-900/50 text-amber-400 font-mono" title="Sentimen Negatif">
-          🟡 ${prov.negatif || 0}
+        <span class="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 font-semibold" title="Fakta">
+          Fakta ${prov.fakta || 0}
         </span>
         <div class="flex-1 text-right">
-          <span class="text-[10px] text-cyan-400 group-hover:text-cyan-200 font-semibold flex items-center justify-end space-x-0.5">
+          <span class="text-xs text-slate-700 group-hover:text-slate-900 font-semibold flex items-center justify-end space-x-0.5">
             <span>Pilih</span>
             <i data-lucide="chevron-right" class="w-3 h-3"></i>
           </span>
@@ -1307,14 +1132,176 @@ function selectProvince(prov) {
   }
 
   applyFilters();
-  showToast(`Memantau Provinsi ${prov.provinsi}: ${prov.total} berita viral aktif.`);
+  showToast(`Peta menampilkan berita dari ${prov.provinsi} (${prov.total} berita).`);
 }
 
 // ==========================================
 // 8. EVENT LISTENERS UI & PENCARIAN
 // ==========================================
 
+function renderSearchResults(data) {
+  const panel = document.getElementById('search-results');
+  if (!panel) return;
+  panel.replaceChildren();
+  panel.classList.remove('hidden');
+
+  const heading = document.createElement('div');
+  heading.className = 'sticky top-0 z-10 border-b border-slate-200 app-surface px-4 py-3';
+  const summary = document.createElement('div');
+  summary.className = 'flex items-center justify-between gap-3';
+  const title = document.createElement('div');
+  title.className = 'text-xs font-bold text-slate-900';
+  title.textContent = data.count
+    ? `${data.count} berita dan sumber pemeriksa fakta yang cocok`
+    : 'Belum ditemukan berita cocok dari penerbit tepercaya';
+  summary.appendChild(title);
+  if (data.summary_label) {
+    const badge = document.createElement('span');
+    const label = data.summary_label;
+    const isPrediction = /prediksi|belum terkonfirmasi|belum terverifikasi/i.test(data.summary_basis || '');
+    const display = getClassificationDisplay(label);
+    const color = label === 'hoaks' ? 'text-red-800 border-red-200 bg-red-50'
+      : label === 'fakta' ? 'text-blue-800 border-blue-200 bg-blue-50'
+        : 'text-slate-700 border-slate-300 bg-slate-100';
+    badge.className = `shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${color}`;
+    badge.textContent = isPrediction ? `Prediksi sementara · ${display.text}` : display.text;
+    summary.appendChild(badge);
+  }
+  const note = document.createElement('p');
+  note.className = 'mt-1 text-xs leading-relaxed text-slate-500';
+  note.textContent = data.message || 'Label dihitung dari isi, bukan judul saja. Buka tautan untuk melihat sumber asli.';
+  if (data.summary_label === 'negatif') {
+    note.textContent = 'Bukti yang ditemukan belum cukup untuk menetapkan klaim sebagai fakta atau hoaks.';
+  } else if (data.summary_basis) {
+    const confidence = Math.round((data.summary_confidence || 0) * 100);
+    note.textContent += ` Dasar prediksi: ${data.summary_basis} (${confidence}% perkiraan).`;
+  }
+  note.textContent += ' Prediksi dari AI bisa saja ada kekeliruan. Periksa sumber aslinya.';
+  if (data.summary_label === 'fakta' && !data.articles?.some(article => /turnbackhoax|cekfakta/i.test(article.domain || ''))) {
+    note.textContent += ' Label fakta merujuk pada laporan dari penerbit tepercaya; klaim khusus hanya dipastikan jika ada hasil pemeriksa fakta yang cocok.';
+  }
+  heading.append(summary, note);
+  panel.appendChild(heading);
+
+  if (!data.articles || data.articles.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'px-4 py-5 text-xs text-slate-500';
+    empty.textContent = 'Coba variasi kata kunci. Pencarian memeriksa isi berita dari berbagai penerbit dan sumber pemeriksa fakta.';
+    panel.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'divide-y divide-slate-200';
+  data.articles.forEach((article) => {
+    let sourceUrl;
+    try {
+      sourceUrl = new URL(article.url);
+      if (!['http:', 'https:'].includes(sourceUrl.protocol)) return;
+    } catch (_) {
+      return;
+    }
+
+    const card = document.createElement('article');
+    card.className = 'px-4 py-3 hover:bg-slate-100';
+    const top = document.createElement('div');
+    top.className = 'flex items-start justify-between gap-3';
+    const articleTitle = document.createElement('a');
+    articleTitle.className = 'text-xs font-semibold leading-relaxed text-slate-800 hover:text-slate-900';
+    articleTitle.href = article.url;
+    articleTitle.target = '_blank';
+    articleTitle.rel = 'noopener noreferrer';
+    articleTitle.textContent = article.title || 'Artikel tanpa judul';
+    const label = article.analysis?.label || 'fakta';
+    const display = getClassificationDisplay(label);
+    const badge = document.createElement('span');
+    const color = label === 'hoaks' ? 'text-red-800 border-red-200 bg-red-50'
+      : label === 'fakta' ? 'text-blue-800 border-blue-200 bg-blue-50'
+        : 'text-slate-700 border-slate-300 bg-slate-100';
+    badge.className = `shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${color}`;
+    badge.textContent = display.text;
+    top.append(articleTitle, badge);
+
+    const sourceLink = document.createElement('a');
+    sourceLink.className = 'mt-1 inline-flex items-center gap-1 text-xs font-semibold text-slate-700 hover:text-slate-900';
+    sourceLink.href = sourceUrl.href;
+    sourceLink.target = '_blank';
+    sourceLink.rel = 'noopener noreferrer';
+    const sourceName = article.source || article.domain || sourceUrl.hostname.replace(/^www\./, '');
+    sourceLink.textContent = `Sumber: ${sourceName} (${sourceUrl.hostname.replace(/^www\./, '')}) · Buka sumber asli ↗`;
+
+    const metadata = document.createElement('p');
+    metadata.className = 'mt-1 text-xs text-slate-500';
+    const confidence = Math.round((article.analysis?.probabilitas || 0) * 100);
+    const basis = label !== 'negatif' && article.analysis?.basis ? ` · dasar prediksi: ${article.analysis.basis}` : '';
+    metadata.textContent = `${article.content_type === 'postingan' ? 'Isi postingan' : 'Isi artikel'} dianalisis · kecocokan ${Math.round((article.relevance || 0) * 100)}% · perkiraan ${confidence}%${basis}`;
+
+    const bodyToggle = document.createElement('details');
+    bodyToggle.className = 'mt-2';
+    const bodyLabel = document.createElement('summary');
+    bodyLabel.className = 'cursor-pointer text-xs font-semibold text-slate-700 hover:text-slate-900';
+    bodyLabel.textContent = `Tampilkan isi yang dianalisis (${article.content_length || article.content?.length || 0} karakter)`;
+    const body = document.createElement('p');
+    body.className = 'mt-2 max-h-56 overflow-y-auto whitespace-pre-line rounded-lg app-surface-soft p-2.5 text-xs leading-relaxed text-slate-700';
+    body.textContent = article.content || 'Isi tidak tersedia.';
+    bodyToggle.append(bodyLabel, body);
+    card.append(top, sourceLink, metadata, bodyToggle);
+    list.appendChild(card);
+  });
+  panel.appendChild(list);
+}
+
+async function searchNewsByKeyword(query) {
+  const panel = document.getElementById('search-results');
+  if (!panel) return;
+  document.getElementById('feed-container')?.classList.add('hidden');
+  panel.classList.remove('hidden');
+  panel.textContent = 'Mencari artikel/cuitan dari sumber tepercaya dan membaca isi lengkapnya…';
+  panel.className = 'absolute left-0 top-full mt-2 w-[min(92vw,48rem)] max-h-[72vh] overflow-y-auto rounded-lg border border-slate-300 app-surface p-4 text-xs text-slate-800 shadow-lg z-[80]';
+
+  try {
+    const response = await fetch(`/api/search/news?q=${encodeURIComponent(query)}`);
+    const data = await response.json();
+    if (!response.ok || !data.success) throw new Error(data.error || 'Pencarian berita gagal.');
+    renderSearchResults(data);
+  } catch (error) {
+    panel.textContent = error.message || 'Tidak dapat mencari berita saat ini.';
+    panel.classList.add('text-red-800');
+    console.error('[!] Pencarian berita gagal:', error);
+  }
+}
+
 function initUIEvents() {
+  const themeToggle = document.getElementById('theme-toggle');
+  const applyTheme = (theme, persist = true) => {
+    const isDark = theme === 'dark';
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+    if (persist) {
+      try { localStorage.setItem('geosentry-theme', isDark ? 'dark' : 'light'); } catch (_) {}
+    }
+
+    if (themeToggle) {
+      themeToggle.setAttribute('aria-pressed', String(isDark));
+      themeToggle.setAttribute('aria-label', `Aktifkan mode ${isDark ? 'terang' : 'gelap'}`);
+      themeToggle.title = `Aktifkan mode ${isDark ? 'terang' : 'gelap'}`;
+      themeToggle.innerHTML = `
+        <i data-lucide="${isDark ? 'sun' : 'moon'}" class="w-4 h-4"></i>
+        <span id="theme-toggle-label" class="hidden 2xl:inline text-xs font-semibold">Mode ${isDark ? 'terang' : 'gelap'}</span>
+      `;
+      if (window.lucide?.createIcons) lucide.createIcons();
+    }
+
+    if (AppState.chartCategory) {
+      AppState.chartCategory.options.plugins.legend.labels.color = isDark ? '#cbd5e1' : '#475569';
+      AppState.chartCategory.update('none');
+    }
+  };
+
+  applyTheme(document.documentElement.dataset.theme || 'light', false);
+  themeToggle?.addEventListener('click', () => {
+    applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+  });
+
   // Live Clock
   setInterval(() => {
     const now = new Date();
@@ -1340,21 +1327,25 @@ function initUIEvents() {
     inputSearch.value = '';
     AppState.currentFilter.search = '';
     btnClearSearch.classList.add('hidden');
+    document.getElementById('search-results')?.classList.add('hidden');
+    document.getElementById('feed-container')?.classList.remove('hidden');
     applyFilters();
   });
 
-  // Jika tekan Enter di search bar dan tidak ada hasil, tawarkan cek AI
-  inputSearch.addEventListener('keypress', (e) => {
+  // Enter mencari artikel/cuitan dari sumber aktual, termasuk padanan kata.
+  inputSearch.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      const q = inputSearch.value.trim();
-      if (q) {
-        const matches = Array.from(AppState.threats.values()).filter(isFeatureMatchFilter);
-        if (matches.length === 0) {
-          document.getElementById('modal-checker').classList.remove('hidden');
-          document.getElementById('checker-input-text').value = q;
-          runNewsAnalysis(false);
-        }
-      }
+      e.preventDefault();
+      const query = inputSearch.value.trim();
+      if (query) searchNewsByKeyword(query);
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    const results = document.getElementById('search-results');
+    if (results && !results.contains(event.target) && !inputSearch.contains(event.target)) {
+      results.classList.add('hidden');
+      document.getElementById('feed-container')?.classList.remove('hidden');
     }
   });
 
@@ -1377,13 +1368,9 @@ function initUIEvents() {
     };
   }
 
-  // Filter Kategori & Sumber
+  // Filter kategori
   document.getElementById('filter-label').onchange = (e) => {
     AppState.currentFilter.label = e.target.value;
-    applyFilters();
-  };
-  document.getElementById('filter-sumber').onchange = (e) => {
-    AppState.currentFilter.sumber = e.target.value;
     applyFilters();
   };
   document.getElementById('btn-refresh').onclick = () => {
@@ -1418,30 +1405,20 @@ function initUIEvents() {
   }
 
 
-  // Layer Switcher: Markers vs Heatmap
+  // Sakelar untuk menampilkan atau menyembunyikan semua titik radar.
   const btnMarkers = document.getElementById('layer-markers');
-  const btnHeatmap = document.getElementById('layer-heatmap');
-
-  btnMarkers.onclick = () => {
-    AppState.activeLayer = 'markers';
-    btnMarkers.className = 'px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-semibold transition hover:bg-cyan-500 flex items-center space-x-1.5';
-    btnHeatmap.className = 'px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-semibold transition hover:bg-slate-700 flex items-center space-x-1.5';
-    
-    if (AppState.map.hasLayer(AppState.heatLayer)) AppState.map.removeLayer(AppState.heatLayer);
-    applyFilters();
-  };
-
-  btnHeatmap.onclick = () => {
-    AppState.activeLayer = 'heatmap';
-    btnHeatmap.className = 'px-3 py-1.5 rounded-lg bg-orange-600 text-white font-semibold transition hover:bg-orange-500 flex items-center space-x-1.5';
-    btnMarkers.className = 'px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 font-semibold transition hover:bg-slate-700 flex items-center space-x-1.5';
-    
-    AppState.markers.forEach(m => {
-      if (AppState.map.hasLayer(m)) AppState.map.removeLayer(m);
-    });
-    updateHeatmapData();
-    AppState.heatLayer.addTo(AppState.map);
-  };
+  if (btnMarkers) {
+    btnMarkers.onclick = () => {
+      AppState.markersVisible = !AppState.markersVisible;
+      btnMarkers.setAttribute('aria-pressed', String(AppState.markersVisible));
+      btnMarkers.className = AppState.markersVisible
+        ? 'px-3 py-1.5 rounded-lg bg-green-700 text-green-50 font-semibold transition hover:bg-green-800 flex items-center space-x-1.5'
+        : 'px-3 py-1.5 rounded-lg bg-green-50 border border-green-200 text-green-800 font-semibold transition hover:bg-green-100 flex items-center space-x-1.5';
+      const stateLabel = btnMarkers.querySelector('span');
+      if (stateLabel) stateLabel.textContent = `Titik peta: ${AppState.markersVisible ? 'Tampil' : 'Sembunyi'}`;
+      applyFilters();
+    };
+  }
 
   // Toast Notification System
   function showToast(message, isError = false) {
@@ -1454,13 +1431,13 @@ function initUIEvents() {
     }
 
     const toast = document.createElement('div');
-    toast.className = `px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center space-x-2 border transition-all duration-300 transform translate-y-[-10px] opacity-0 pointer-events-auto ${
+    toast.className = `px-4 py-2.5 rounded-lg shadow-lg text-xs font-semibold flex items-center space-x-2 border transition-all duration-300 transform translate-y-[-6px] opacity-0 pointer-events-auto ${
       isError 
-        ? 'bg-red-950/90 text-red-200 border-red-800' 
-        : 'bg-slate-900/95 text-cyan-200 border-cyan-500/50'
+        ? 'bg-red-50 text-red-800 border-red-200'
+        : 'app-surface text-slate-800 border-slate-300'
     }`;
     toast.innerHTML = `
-      <span class="w-2 h-2 rounded-full ${isError ? 'bg-red-400' : 'bg-cyan-400 animate-ping'}"></span>
+      <span class="w-2 h-2 rounded-full ${isError ? 'bg-red-400' : 'bg-slate-700'}"></span>
       <span>${message}</span>
     `;
 
@@ -1568,35 +1545,6 @@ function initUIEvents() {
     };
   }
 
-  // Klik card insight kategori terpanas (Hoaks, Fakta, Negatif)
-  const cardHoaks = document.getElementById('card-top-hoaks');
-  const cardFakta = document.getElementById('card-top-fakta');
-  const cardNegatif = document.getElementById('card-top-negatif');
-
-  if (cardHoaks) {
-    cardHoaks.onclick = () => {
-      const el = document.getElementById('top-fact-hoaks');
-      if (el && el.innerText && el.innerText !== '-') {
-        zoomToRegion(el.innerText.split('(')[0].trim());
-      }
-    };
-  }
-  if (cardFakta) {
-    cardFakta.onclick = () => {
-      const el = document.getElementById('top-fact-fakta');
-      if (el && el.innerText && el.innerText !== '-') {
-        zoomToRegion(el.innerText.split('(')[0].trim());
-      }
-    };
-  }
-  if (cardNegatif) {
-    cardNegatif.onclick = () => {
-      const el = document.getElementById('top-fact-negatif');
-      if (el && el.innerText && el.innerText !== '-') {
-        zoomToRegion(el.innerText.split('(')[0].trim());
-      }
-    };
-  }
 }
 
 // Inisialisasi Utama

@@ -1,13 +1,13 @@
 /* GeoSentry Dashboard Styles */
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-
 :root {
-  --bg-dark: #070b14;
-  --panel-bg: rgba(15, 23, 42, 0.88);
-  --border-color: rgba(51, 65, 85, 0.65);
+  --bg-app: #dfe2e5;
+  --panel-bg: #eceef0;
+  --surface-soft: #e3e6e9;
+  --border-color: #c4c9cf;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
   --accent-hoax: #ef4444;
   --accent-fact: #3b82f6;
-  --accent-negative: #f59e0b;
 }
 
 *, *::before, *::after {
@@ -20,21 +20,112 @@ html, body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  background-color: var(--bg-dark);
-  color: #f1f5f9;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: auto;
+  line-height: 1.5;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  color-scheme: light;
+  transition: background-color 180ms ease, color 180ms ease;
 }
 
-.font-mono {
-  font-family: 'JetBrains Mono', monospace;
+:root[data-theme="dark"] {
+  --bg-app: #111318;
+  --panel-bg: #191c22;
+  --surface-soft: #22262e;
+  --border-color: #353b46;
+  --text-primary: #e5e7eb;
+  --text-secondary: #a1a1aa;
+  color-scheme: dark;
 }
 
-/* Glassmorphism panel */
+.app-canvas {
+  background-color: var(--bg-app);
+}
+
+.app-surface {
+  background-color: var(--panel-bg);
+}
+
+.app-surface-soft {
+  background-color: var(--surface-soft);
+}
+
+:root[data-theme="dark"] body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  color-scheme: dark;
+}
+
+:root[data-theme="dark"] .text-slate-900 { color: #f1f5f9 !important; }
+:root[data-theme="dark"] .text-slate-800 { color: #e2e8f0 !important; }
+:root[data-theme="dark"] .text-slate-700 { color: #cbd5e1 !important; }
+:root[data-theme="dark"] .text-slate-600 { color: #cbd5e1 !important; }
+:root[data-theme="dark"] .text-slate-500 { color: #a1a1aa !important; }
+:root[data-theme="dark"] .text-slate-400 { color: #a1a1aa !important; }
+:root[data-theme="dark"] .bg-slate-100 { background-color: #272b33 !important; }
+:root[data-theme="dark"] .bg-slate-200 { background-color: #343a46 !important; }
+:root[data-theme="dark"] .border-slate-200,
+:root[data-theme="dark"] .border-slate-300,
+:root[data-theme="dark"] .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #353b46 !important;
+}
+:root[data-theme="dark"] [class~="hover:bg-slate-100"]:hover { background-color: #272b33 !important; }
+:root[data-theme="dark"] [class~="hover:bg-slate-200"]:hover { background-color: #343a46 !important; }
+:root[data-theme="dark"] [class~="hover:text-slate-900"]:hover { color: #f1f5f9 !important; }
+:root[data-theme="dark"] .placeholder-slate-500::placeholder { color: #a1a1aa !important; }
+:root[data-theme="dark"] .bg-red-50 { background-color: #3b2228 !important; }
+:root[data-theme="dark"] .border-red-200 { border-color: #71333b !important; }
+:root[data-theme="dark"] .text-red-800,
+:root[data-theme="dark"] .text-red-700 { color: #fca5a5 !important; }
+:root[data-theme="dark"] .bg-blue-50 { background-color: #1d2c40 !important; }
+:root[data-theme="dark"] .border-blue-200 { border-color: #345577 !important; }
+:root[data-theme="dark"] .text-blue-800,
+:root[data-theme="dark"] .text-blue-700 { color: #93c5fd !important; }
+:root[data-theme="dark"] .bg-red-700 { background-color: #991b1b !important; }
+:root[data-theme="dark"] [class~="hover:bg-red-800"]:hover { background-color: #7f1d1d !important; }
+:root[data-theme="dark"] .bg-blue-700 { background-color: #1d4ed8 !important; }
+:root[data-theme="dark"] [class~="hover:bg-blue-800"]:hover { background-color: #1e40af !important; }
+:root[data-theme="dark"] .bg-green-50 { background-color: #183025 !important; }
+:root[data-theme="dark"] .bg-green-100 { background-color: #214531 !important; }
+:root[data-theme="dark"] .border-green-200 { border-color: #2f5c43 !important; }
+:root[data-theme="dark"] .text-green-900,
+:root[data-theme="dark"] .text-green-800,
+:root[data-theme="dark"] .text-green-700 { color: #86efac !important; }
+:root[data-theme="dark"] .bg-green-700 { background-color: #166534 !important; }
+:root[data-theme="dark"] [class~="hover:bg-green-100"]:hover,
+:root[data-theme="dark"] [class~="hover:bg-green-50"]:hover { background-color: #214531 !important; }
+:root[data-theme="dark"] [class~="hover:bg-green-800"]:hover { background-color: #14532d !important; }
+:root[data-theme="dark"] [class~="hover:text-green-900"]:hover { color: #bbf7d0 !important; }
+:root[data-theme="dark"] [class~="focus:border-green-600"]:focus { border-color: #4ade80 !important; }
+:root[data-theme="dark"] [class~="focus:ring-green-600"]:focus { --tw-ring-color: #4ade80 !important; }
+:root[data-theme="dark"] [class~="focus:border-slate-500"]:focus { border-color: #64748b !important; }
+:root[data-theme="dark"] [class~="focus:ring-slate-500"]:focus { --tw-ring-color: #64748b !important; }
+:root[data-theme="dark"] .glass-panel { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3); }
+
+:root:not([data-theme="dark"]) .bg-slate-100 { background-color: #e3e6e9 !important; }
+:root:not([data-theme="dark"]) .bg-slate-200 { background-color: #d7dbe0 !important; }
+:root:not([data-theme="dark"]) .bg-red-50 { background-color: #f1e1e1 !important; }
+:root:not([data-theme="dark"]) .bg-blue-50 { background-color: #e1e8f1 !important; }
+:root:not([data-theme="dark"]) .bg-green-50 { background-color: #deeadf !important; }
+:root:not([data-theme="dark"]) .bg-green-100 { background-color: #cfdfd1 !important; }
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.6; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid #16a34a;
+  outline-offset: 2px;
+}
+
+/* Solid panels keep the dashboard readable over the map. */
 .glass-panel {
   background: var(--panel-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-color);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
 }
 
 /* Map Container - Paling Penting: Pastikan Tinggi & Posisi Absolut */
@@ -54,36 +145,26 @@ html, body {
   right: 0;
   width: 100% !important;
   height: 100% !important;
-  background: #f1f5f9;
+  background: #e5e7eb;
   z-index: 1;
 }
 
-/* Pulsing markers animation */
-@keyframes pulse-ring {
-  0% { transform: scale(0.6); opacity: 0.95; }
-  100% { transform: scale(2.4); opacity: 0; }
+:root[data-theme="dark"] #map {
+  background: #ffffff;
 }
 
 .marker-pin {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   position: relative;
-  box-shadow: 0 0 10px currentColor, 0 2px 6px rgba(0, 0, 0, 0.4);
-  border: 2.5px solid #ffffff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.28);
+  border: 2px solid var(--panel-bg);
   cursor: pointer;
 }
 
 .marker-pin::after {
-  content: '';
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-  animation: pulse-ring 2s infinite cubic-bezier(0.215, 0.61, 0.355, 1);
+  content: none;
 }
 
 .marker-hoaks {
@@ -96,23 +177,18 @@ html, body {
   color: #3b82f6;
 }
 
-.marker-negatif {
-  background-color: #f59e0b;
-  color: #f59e0b;
-}
-
 /* Custom Leaflet Popups */
 .leaflet-popup-content-wrapper {
-  background: rgba(15, 23, 42, 0.96) !important;
-  color: #f8fafc !important;
-  border: 1px solid rgba(148, 163, 184, 0.3) !important;
-  border-radius: 14px !important;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75) !important;
+  background: var(--panel-bg) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16) !important;
   padding: 4px !important;
 }
 
 .leaflet-popup-tip {
-  background: rgba(15, 23, 42, 0.96) !important;
+  background: var(--panel-bg) !important;
 }
 
 .leaflet-popup-content {
@@ -120,33 +196,66 @@ html, body {
   line-height: 1.4 !important;
 }
 
+.leaflet-bar {
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14) !important;
+}
+
+.leaflet-bar a,
+.leaflet-bar a:hover {
+  background: var(--panel-bg) !important;
+  color: var(--text-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+.leaflet-control-attribution {
+  background: var(--panel-bg) !important;
+  color: var(--text-secondary) !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--text-primary) !important;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.5);
+  background: #eaecf0;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.5);
+  background: #cbd5e1;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.8);
 }
 
+:root[data-theme="dark"] ::-webkit-scrollbar-track { background: #191c22; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: #4b5563; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
 /* Live threat item highlight animation */
 @keyframes highlight-glow {
-  0% { background-color: rgba(6, 182, 212, 0.3); border-color: #06b6d4; }
-  100% { background-color: rgba(30, 41, 59, 0.6); border-color: rgba(51, 65, 85, 0.6); }
+  0% { background-color: #d1d5db; border-color: #9ca3af; }
+  100% { background-color: #f3f4f6; border-color: #cbd0d7; }
+}
+
+@keyframes highlight-glow-dark {
+  0% { background-color: #343a46; border-color: #64748b; }
+  100% { background-color: #191c22; border-color: #353b46; }
+}
+
+:root[data-theme="dark"] .threat-item-new {
+  animation-name: highlight-glow-dark;
 }
 
 .threat-item-new {
-  animation: highlight-glow 2.5s ease-out;
+  animation: highlight-glow 1.8s ease-out;
 }
 
 /* Modal Backdrop */
 .modal-backdrop {
-  background-color: rgba(3, 7, 18, 0.75);
-  backdrop-filter: blur(8px);
+  background-color: rgba(15, 23, 42, 0.55);
 }

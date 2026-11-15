@@ -46,6 +46,7 @@ if BASE_DIR not in sys.path:
 
 from scripts.nlp.predict import predict_threat
 from scripts.gazetteer.geocode import extract_location
+from scripts.tools.verification_gate import verify_social_post
 
 HTTP_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -196,10 +197,26 @@ def inspect_and_verify_social_url(url: str, custom_text: str = None, save_to_db:
     if not text_to_analyze:
         text_to_analyze = f"Laporan pantauan postingan video viral {platform} dari tautan {url}"
 
-    # 2. Klasifikasi AI NLP (Hoaks / Fakta / Sentimen Negatif)
+    # 2. Prediksi awal, lalu bukti gerbang wajib sebelum simpan/tampilkan.
     pred = predict_threat(text_to_analyze)
-    label = pred["label"]
-    prob = pred["probabilitas"]
+    # Only trust content actually returned by yt-dlp from the original post.
+    # Fallback metadata, URL slugs, and caller-supplied text are not evidence that
+    # the linked post exists or expresses the analyzed sentiment.
+    fetched_original_text = extracted.get("combined_text") or ""
+    has_original_content = (
+        extracted.get("success") is True
+        and extracted.get("engine") == "yt-dlp"
+        and bool(fetched_original_text.strip())
+        and not custom_text
+    )
+    verification = verify_social_post(
+        platform,
+        fetched_original_text,
+        url,
+        original_content_fetched=has_original_content,
+    )
+    label = verification["label"] if verification else pred["label"]
+    prob = verification["probabilitas"] if verification else pred["probabilitas"]
 
     # 3. Geocoding Offline PostGIS (Mencocokkan ke 38 Provinsi)
     loc = extract_location(text_to_analyze, default_if_none=True)
@@ -213,29 +230,19 @@ def inspect_and_verify_social_url(url: str, custom_text: str = None, save_to_db:
         provinsi = lokasi_nama.split("(")[-1].replace(")", "").strip()
 
     # 4. Susun Daftar Tautan Referensi
-    referensi_urls = [
-        {
-            "sumber": platform,
-            "url": url,
-            "judul": extracted.get("title") or f"Postingan Asli {platform.upper()}"
-        },
-        {
-            "sumber": "turnbackhoax",
-            "url": f"https://turnbackhoax.id/?s={requests.utils.quote(text_to_analyze[:50])}",
-            "judul": "Cek Klarifikasi TurnBackHoax (Mafindo)"
-        },
-        {
-            "sumber": "berita",
-            "url": f"https://news.google.com/search?q={requests.utils.quote(text_to_analyze[:50])}",
-            "judul": "Penelusuran Fakta Berita Terkait"
-        }
-    ]
+    referensi_urls = [{
+        "sumber": platform,
+        "url": url,
+        "judul": extracted.get("title") or f"Postingan Asli {platform.upper()}"
+    }]
+    if verification:
+        referensi_urls.extend(verification.get("referensi", []))
 
     now = datetime.now(timezone.utc)
     new_id = None
 
     # 5. Simpan ke Database PostgreSQL PostGIS jika diminta
-    if save_to_db and DATABASE_URL:
+    if save_to_db and DATABASE_URL and verification:
         try:
             with psycopg.connect(DATABASE_URL) as conn:
                 with conn.cursor() as cur:
@@ -246,15 +253,19 @@ def inspect_and_verify_social_url(url: str, custom_text: str = None, save_to_db:
                         new_id = exist[0]
                         cur.execute("""
                             UPDATE social_threats 
-                            SET teks = %s, label = %s, probabilitas = %s, dibuat_pada = %s, status_tayang = TRUE, referensi_urls = %s::jsonb
+                            SET teks = %s, label = %s, probabilitas = %s, dibuat_pada = %s, status_tayang = TRUE,
+                                referensi_urls = %s::jsonb, verifikasi_status = %s,
+                                verifikasi_dasar = %s, verifikasi_pada = NOW()
                             WHERE id = %s;
-                        """, (text_to_analyze, label, prob, now, json.dumps(referensi_urls), new_id))
+                        """, (text_to_analyze, label, prob, now, json.dumps(referensi_urls), verification["status"], verification["basis"], new_id))
                     else:
                         query = """
                             INSERT INTO social_threats 
-                            (sumber, teks, label, probabilitas, geom, lokasi_nama, url, referensi_urls, status_tayang, dikoreksi, dibuat_pada)
+                            (sumber, teks, label, probabilitas, geom, lokasi_nama, url, referensi_urls,
+                             status_tayang, verifikasi_status, verifikasi_dasar, verifikasi_pada, dikoreksi, dibuat_pada)
                             VALUES 
-                            (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s::jsonb, TRUE, FALSE, %s)
+                            (%s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s::jsonb,
+                             TRUE, %s, %s, NOW(), FALSE, %s)
                             RETURNING id;
                         """
                         cur.execute(query, (
@@ -267,6 +278,8 @@ def inspect_and_verify_social_url(url: str, custom_text: str = None, save_to_db:
                             lokasi_nama,
                             url,
                             json.dumps(referensi_urls),
+                            verification["status"],
+                            verification["basis"],
                             now
                         ))
                         new_id = cur.fetchone()[0]
@@ -289,6 +302,8 @@ def inspect_and_verify_social_url(url: str, custom_text: str = None, save_to_db:
         "lon": lon,
         "url": url,
         "referensi_urls": referensi_urls,
+        "verifikasi_status": verification["status"] if verification else "belum terverifikasi",
+        "verifikasi_dasar": verification["basis"] if verification else None,
         "dibuat_pada": now.isoformat()
     }
 

@@ -1,6 +1,6 @@
 """
 GeoSentry - Modul Inferensi & Feedback Loop AI (Hybrid Intelligence)
-1. Memprediksi ancaman siber sosial (hoaks, fakta, negatif) menggunakan kombinasi:
+1. Memberi saran klasifikasi awal (hoaks, fakta, negatif) menggunakan kombinasi:
    - Statistical Incremental ML (SGDClassifier + HashingVectorizer, Stateless & Zero-Token)
    - Knowledge Base Narasi Disinformasi Terverifikasi (TurnBackHoax/CekFakta Patterns)
 2. Memfasilitasi Online Learning (partial_fit) ketika analis mengoreksi hasil di dashboard.
@@ -13,6 +13,12 @@ import json
 import joblib
 import numpy as np
 from .train import preprocess_text, CLASSES, MODEL_PKL
+# Optional sentiment analysis for negative sentiment detection
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    _sentiment_analyzer = SentimentIntensityAnalyzer()
+except Exception:  # pragma: no cover
+    _sentiment_analyzer = None
 
 # Global cache model
 _MODEL_BUNDLE = None
@@ -23,16 +29,19 @@ _MODEL_BUNDLE = None
 HOAX_INDICATOR_PATTERNS = [
     # Explicit hoax labels & forwards & TurnBackHoax debunking tags
     re.compile(r"\[(?:salah|disinformasi|manipulasi|penipuan|misinformasi|hoaks|hoax|palsu|fitnah)\]", re.I),
-    re.compile(r"\b(?:hoaks|hoax|berita\s+bohong|kabar\s+dusta|kabar\s+burung|fitnah\s+keji|pesan\s+berantai|klaim\s+palsu)\b", re.I),
+    # A mere mention of "hoaks/hoax" is not proof: factual reports often discuss or debunk hoaxes.
+    # Only treat a directly described false claim as a hoax indicator.
+    re.compile(r"\b(?:klaim|informasi|narasi)\s+(?:tersebut\s+)?(?:terbukti\s+)?(?:palsu|bohong|tidak\s+benar)\b", re.I),
     re.compile(r"\b(?:sebar(?:kan)?\s+sebelum\s+dihapus|info\s+a1\b|jangan\s+berhenti\s+di\s+(?:kamu|anda)|bagikan\s+ke\s+(?:semua\s+)?grup|viralkan\s+sekarang|jangan\s+mau\s+dibohongi\s+media)\b", re.I),
+    re.compile(r"\b(?:pesan|kabar)\s+berantai\b.{0,100}\b(?:tanpa\s+sumber\s+resmi|teruskan|sebarkan|klaim)\b", re.I),
     
     # Konspirasi & Politik / Pemilu Palsu
     re.compile(r"\b(?:jual\s+pulau|jual\s+negara|dikuasai\s+china|tentara\s+china|pulau\s+jawa\s+dijual|indonesia\s+dijual|aset\s+negara\s+dijual)\b", re.I),
     re.compile(r"\b(?:ijazah\s+(?:jokowi\s+)?palsu|jokowi\s+ijazah\s+palsu|presiden\s+bohong|janji\s+palsu)\b", re.I),
     re.compile(r"\b(?:kas\s+negara\s+kosong|uang\s+negara\s+ludes|dirampok\s+pejabat|bank\s+bangkrut\s+total|uang\s+nasabah\s+disita)\b", re.I),
     re.compile(r"\b(?:server\s+kpu\s+diretas|suara\s+dialihkan|kpu\s+curang|pemilu\s+curang)\b", re.I),
-    re.compile(r"\b(?:korupsi\s+.*triliunan|korupsi\s+dana\s+bansos|kabur\s+ke\s+luar\s+negeri|dituduh\s+selingkuh|video\s+syur\s+pejabat)\b", re.I),
-    re.compile(r"\b(?:menteri|pejabat|mentan|menkeu|menkopolhukam|menag)\b.*\b(?:mundur|mengundurkan\s+diri|kabur|ditangkap\s+kpk\s+palsu)\b", re.I),
+    re.compile(r"\b(?:korupsi\s+.*triliunan|korupsi\s+dana\s+bansos|kabur\s+ke\s+luar\s+negeri|video\s+syur\s+pejabat)\b", re.I),
+    re.compile(r"\b(?:menteri|pejabat|mentan|menkeu|menkopolhukam|menag)\b.*\b(?:ditangkap\s+kpk\s+palsu)\b", re.I),
     re.compile(r"\b(?:bumi\s+(?:itu\s+)?datar|konspirasi\s+elit\s+global|pendaratan\s+bulan\s+sandiwara|chemtrail)\b", re.I),
 
     # Pseudosains & Medis Palsu
@@ -103,6 +112,61 @@ NEGATIVE_INDICATOR_PATTERNS = [
     re.compile(r"\b(?:gantung\s+(?:semua\s+)?pejabat|hukum\s+mati\s+(?:presiden|menteri|pejabat))\b", re.I),
 ]
 
+# Context indicating that the input is a report about fact-checking, rather than
+# the original false claim itself. This should prevent articles that debunk hoaxes
+# from being classified as hoaxes merely because they mention them.
+FACT_CHECK_REPORTING_PATTERNS = [
+    re.compile(r"\b(?:cek\s+fakta|periksa\s+fakta|pemeriksa\s+fakta|fact\s*check)\b", re.I),
+    re.compile(r"\b(?:klarifikasi|membantah|menepis|meluruskan)\b.{0,100}\b(?:klaim|kabar|informasi|narasi|hoaks|hoax|berita)\b", re.I),
+    re.compile(r"\b(?:klaim|kabar|informasi|narasi|hoaks|hoax)\b.{0,100}\b(?:dibantah|diklarifikasi|diluruskan|terbukti\s+salah|tidak\s+benar)\b", re.I),
+    re.compile(r"\b(?:hasil|tim)\s+(?:pemeriksaan|periksa|penelusuran)\s+fakta\b", re.I),
+]
+
+JOURNALISTIC_CONTEXT_PATTERN = re.compile(
+    r"\b(?:menurut|berdasarkan|dilaporkan|diberitakan|menyatakan|mengonfirmasi|"
+    r"mengklarifikasi|membantah|menepis|meluruskan|hasil\s+penelusuran|"
+    r"hasil\s+pemeriksaan|rilis\s+resmi|siaran\s+pers|konferensi\s+pers)\b",
+    re.I,
+)
+
+PERSONAL_OPINION_PATTERN = re.compile(
+    r"\b(?:menurut\s+saya|menurutku|menurut pendapat saya|pendapat saya|"
+    r"saya rasa|saya menilai|saya kecewa|kritik saya)\b",
+    re.I,
+)
+UNSOURCED_CRITICISM_PATTERN = re.compile(
+    r"\b(?:kritik(?:nya)?|buruk|parah|kacau|amburadul|mengecewakan|memalukan|"
+    r"tidak becus|tak becus|"
+    r"tidak adil|tak adil|tidak peduli|tak peduli|tidak kompeten|tidak layak|"
+    r"tidak beres|tidak transparan|tidak efektif|bobrok|payah|korup|bohong|"
+    r"penipu|menipu|gagal total|gagal mengelola|gagal menjalankan|merugikan|"
+    r"malas|tidak jujur|jahat|arogan|kejam|penuh kebohongan|sangat gagal|"
+    r"kinerja buruk|kecewa|mengecewakan|lamban)\b",
+    re.I,
+)
+CRITICISM_EVIDENCE_PATTERN = re.compile(
+    r"https?://|"
+    r"\b(?:menurut|dikutip dari|berdasarkan|mengacu pada|merujuk pada)\s+"
+    r"(?:data|laporan|dokumen|sumber|hasil|riset|survei|kajian|audit|putusan|"
+    r"keterangan|rilis|siaran pers|surat resmi)\b|"
+    r"\b(?:data resmi menunjukkan|hasil audit|hasil survei|laporan resmi|"
+    r"dokumen resmi|rilis resmi|bukti kuat)\b|"
+    r"\b\d[\d.,]*\s*(?:%|rupiah|orang|jiwa|miliar|juta|triliun|kasus|korban|suara)\b",
+    re.I,
+)
+
+
+def is_unsourced_criticism(text: str) -> bool:
+    """Identify criticism/opinion without an explicit evidence reference."""
+    value = str(text or "").strip()
+    if not value or not UNSOURCED_CRITICISM_PATTERN.search(value):
+        return False
+    if re.search(r"https?://", value, re.I) or CRITICISM_EVIDENCE_PATTERN.search(value):
+        return False
+    if any(pattern.search(value) for pattern in FACT_CHECK_REPORTING_PATTERNS):
+        return False
+    return True
+
 
 def load_model():
     """Memuat model dari disk ke memori cache."""
@@ -119,7 +183,7 @@ def load_model():
 
 def predict_threat(text: str) -> dict:
     """
-    Memprediksi label ancaman (hoaks, fakta, negatif) dan probabilitas keyakinan.
+    Mengklasifikasikan teks ke salah satu dari tiga label GeoSentry.
     Menggunakan pendekatan Hybrid Threat Intelligence:
     1. Priority 1: Ujaran kebencian / provokasi / kekerasan (NEGATIF)
     2. Priority 2: Disinformasi / klaim bohong / konspirasi (HOAKS)
@@ -127,11 +191,7 @@ def predict_threat(text: str) -> dict:
     4. Priority 4: Statistical SGDClassifier + Sentiment Polarity Filter
     """
     if not text or not text.strip():
-        return {
-            "label": "fakta",
-            "probabilitas": 0.5,
-            "skor": {"fakta": 0.3333, "hoaks": 0.3333, "negatif": 0.3334}
-        }
+        raise ValueError("Teks kosong tidak dapat diklasifikasikan")
 
     bundle = load_model()
     vectorizer = bundle["vectorizer"]
@@ -150,15 +210,39 @@ def predict_threat(text: str) -> dict:
     neg_match_count = sum(1 for pat in NEGATIVE_INDICATOR_PATTERNS if pat.search(raw_lower))
     hoax_match_count = sum(1 for pat in HOAX_INDICATOR_PATTERNS if pat.search(raw_lower))
     fact_match_count = sum(1 for pat in FACT_INDICATOR_PATTERNS if pat.search(raw_lower))
-
-    # Cek apakah ini debunk resmi oleh media/lembaga CekFakta (misal: "Klarifikasi Mafindo:")
-    is_official_debunk = any(w in raw_lower for w in ["klarifikasi", "cek fakta", "cekfakta", "turnbackhoax"])
+    fact_check_reporting = any(pat.search(raw_lower) for pat in FACT_CHECK_REPORTING_PATTERNS)
+    personal_opinion = bool(PERSONAL_OPINION_PATTERN.search(raw_lower))
+    journalistic_context = bool(JOURNALISTIC_CONTEXT_PATTERN.search(raw_lower)) and not personal_opinion
+    unsourced_criticism = is_unsourced_criticism(text)
 
     # ==============================================================
     # HIERARKI PENILAIAN ANCAMAN (THREAT INTELLIGENCE PRIORITY)
     # ==============================================================
-    if neg_match_count > 0:
-        # PRIORITAS TERTINGGI: Ancaman Provokasi / Kebencian / Anarki
+    if fact_check_reporting:
+        # The article is reporting a check/debunking, so classify the report itself
+        # as factual instead of treating every mention of a hoax as the hoax claim.
+        prob_dict["fakta"] = max(prob_dict["fakta"], 0.78)
+        prob_dict["hoaks"] = min(prob_dict["hoaks"], 0.12)
+        prob_dict["negatif"] = min(prob_dict["negatif"], 0.10)
+
+    elif unsourced_criticism:
+        # Treat unsupported criticism as negative tone, even if a post uses
+        # generic reporting words such as "menurut". This is not a verdict
+        # that any factual accusation in it is true or false.
+        prob_dict["negatif"] = 0.84
+        prob_dict["fakta"] = 0.10
+        prob_dict["hoaks"] = 0.06
+
+    elif journalistic_context:
+        # A report that quotes or explains a false claim is not itself that claim.
+        # Give reporting context priority over keywords learned from synthetic
+        # examples (including the words "hoaks", "palsu", or violent language).
+        prob_dict["fakta"] = max(prob_dict["fakta"], 0.70)
+        prob_dict["hoaks"] = min(prob_dict["hoaks"], 0.18)
+        prob_dict["negatif"] = min(prob_dict["negatif"], 0.12)
+
+    elif neg_match_count > 0:
+        # Direct calls for violence/hate remain negative when not being reported.
         base_prob = min(0.92 + (0.02 * neg_match_count), 0.99)
         prob_dict["negatif"] = base_prob
         prob_dict["hoaks"] = (1.0 - base_prob) * 0.6
@@ -166,15 +250,10 @@ def predict_threat(text: str) -> dict:
 
     elif hoax_match_count > 0:
         # PRIORITAS KEDUA: Disinformasi & Kabar Bohong
-        if is_official_debunk:
-            prob_dict["fakta"] = 0.94
-            prob_dict["hoaks"] = 0.04
-            prob_dict["negatif"] = 0.02
-        else:
-            base_prob = min(0.92 + (0.02 * hoax_match_count), 0.99)
-            prob_dict["hoaks"] = base_prob
-            prob_dict["fakta"] = (1.0 - base_prob) * 0.4
-            prob_dict["negatif"] = (1.0 - base_prob) * 0.6
+        base_prob = min(0.92 + (0.02 * hoax_match_count), 0.99)
+        prob_dict["hoaks"] = base_prob
+        prob_dict["fakta"] = (1.0 - base_prob) * 0.4
+        prob_dict["negatif"] = (1.0 - base_prob) * 0.6
 
     elif fact_match_count > 0:
         # PRIORITAS KETIGA: Berita Resmi / Jurnalistik Terverifikasi
@@ -185,16 +264,39 @@ def predict_threat(text: str) -> dict:
 
     else:
         # PRIORITAS KEEMPAT: Teks Umum Tanpa Keyword Spesifik
-        # Analisis sentimen negatif umum untuk mencegah kalimat provokasi terselubung jadi "fakta"
-        negative_words = re.findall(
-            r"\b(?:korup|korupsi|bejat|rusak|rusuh|curang|bobrok|zalim|dholim|penipu|bohong|dusta|palsu|ribut|kacau|bentrok|hajar|serang|lawan|demo|kecewa|gagal|hancur|bahaya|mati|pembunuhan|teror|benci|ancam|biadab|anjing|bajingan|antek)\b",
-            raw_lower
+        # Detect jurnalistik markers (trusted media) and toxic words as before
+        journalistic_markers = re.findall(
+                r"\b(?:cek\s+fakta|periksa\s+fakta|pemeriksa\s+fakta|fact\s*check|klarifikasi|membantah|menepis|meluruskan|menurut|dilaporkan|berdasarkan|menyatakan|mengonfirmasi|mengungkapkan|disampaikan|ditegaskan|diberitakan|sumber\s+resmi|warta|redaksi|jurnalis|wartawan|detik\.?com|kompas|antaranews|tempo|cnbc|cnn|bbc|liputan6|tirto|republika|bisnis\.com|tribunnews|kontan|suara\.com|sindonews|okezone|kumparan|viva|jpnn|merdeka\.com|idntimes)\b",
+                raw_lower,
+            )
+        if personal_opinion:
+            journalistic_markers = [marker for marker in journalistic_markers if marker != "menurut"]
+        toxic_words = re.findall(
+            r"\b(?:bejat|bobrok|zalim|dholim|penipu|dusta|bajingan|antek|biadab|anjing|bangsat|keparat|kontol|goblok|tolol|laknat|setan|iblis)\b",
+            raw_lower,
         )
-        if len(negative_words) > 0:
-            # Tekan probabilitas fakta jika terdapat kata-kata beracun/kritik keras
-            prob_dict["fakta"] = max(0.05, prob_dict["fakta"] - 0.45)
-            prob_dict["negatif"] += 0.35
-            prob_dict["hoaks"] += 0.10
+        # Sentiment analysis (if library available)
+        sentiment_score = None
+        if _sentiment_analyzer:
+            sentiment_score = _sentiment_analyzer.polarity_scores(text).get('compound')
+        # Apply rules
+        if sentiment_score is not None and sentiment_score < -0.5:
+            # Strong negative sentiment -> boost NEGATIF
+            prob_dict["negatif"] = max(prob_dict["negatif"], 0.70)
+            prob_dict["fakta"] = max(prob_dict["fakta"], 0.20)
+            prob_dict["hoaks"] = max(prob_dict["hoaks"], 0.10)
+        elif len(toxic_words) >= 2:
+            prob_dict["fakta"] = max(0.05, prob_dict["fakta"] - 0.35)
+            prob_dict["negatif"] += 0.30
+            prob_dict["hoaks"] += 0.05
+        elif len(toxic_words) == 1 and len(journalistic_markers) == 0:
+            prob_dict["fakta"] = max(0.15, prob_dict["fakta"] - 0.20)
+            prob_dict["negatif"] += 0.15
+            prob_dict["hoaks"] += 0.05
+        elif len(journalistic_markers) > 0:
+            prob_dict["fakta"] = max(prob_dict["fakta"], 0.65)
+            prob_dict["hoaks"] = min(prob_dict["hoaks"], 0.20)
+            prob_dict["negatif"] = min(prob_dict["negatif"], 0.15)
 
     # Normalisasi probabilitas agar jumlah total = 1.0
     total = sum(prob_dict.values())

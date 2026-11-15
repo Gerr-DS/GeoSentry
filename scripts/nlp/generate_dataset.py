@@ -65,7 +65,10 @@ BASE_FACTS = [
     "Tim nasional sepak bola Indonesia sukses meraih kemenangan meyakinkan dengan skor 2-0 pada pertandingan lanjutan babak kualifikasi di Stadion GBK.",
     "Pasangan ganda putra bulutangkis Indonesia melaju ke partai puncak turnamen internasional setelah menundukkan unggulan pertama.",
     "Atlet panahan nasional menyumbang medali emas setelah menorehkan skor tertinggi pada babak final kejuaraan olahraga tingkat Asia.",
-    "Pemerintah Daerah menggelar festival kebudayaan dan pawai kesenian tradisional yang disaksikan oleh ribuan warga masyarakat di alun-alun kota."
+    "Pemerintah Daerah menggelar festival kebudayaan dan pawai kesenian tradisional yang disaksikan oleh ribuan warga masyarakat di alun-alun kota.",
+    "Sekretariat kabinet mengonfirmasi seorang menteri telah mengajukan pengunduran diri dan presiden menerima surat tersebut setelah rapat resmi.",
+    "Dalam konferensi pers, juru bicara pemerintah menyatakan pejabat itu mengundurkan diri dari jabatan dan menjelaskan tanggal efektifnya.",
+    "Presiden menerima pengunduran diri pejabat setelah surat resmi disampaikan, menurut keterangan sekretariat kepresidenan."
 ]
 
 # ==============================================================
@@ -101,7 +104,6 @@ BASE_HOAXES = [
 
     # Isu Politik, Keuangan Palsu & Konspirasi
     "Bongkar rekaman rahasia: server KPU telah diretas dan suara pemilihan di seluruh wilayah telah dialihkan 100 persen tanpa meninggalkan jejak!",
-    "Informasi valid dari orang dalam istana: menteri keuangan dan menteri pertahanan serentak mengundurkan diri dari jabatan kabinet presiden!",
     "Foto editan viral: kantor dewan perwakilan roboh dibakar massa demonstran, padahal kenyataannya gedung tersebut masih utuh tanpa kerusakan!",
     "Waspada sindikat penculikan anak berkeliaran naik mobil box putih di sekitar lingkungan sekolah dasar, organ tubuh korban dijual ke pasar gelap!",
     "Mulai besok Bank Indonesia menarik uang pecahan seratus ribu dan lima puluh ribu rupiah dari peredaran sehingga tidak berlaku lagi!",
@@ -114,6 +116,7 @@ BASE_HOAXES = [
     "Menteri agama korupsi dana kuota haji triliunan rupiah dan diam-diam ditangkap penegak hukum!",
     "Gubernur dituduh selingkuh dengan artis ternama dan videonya telah beredar luas di media sosial!",
     "Beredar kabar hoaks air sumur dan air minum kemasan warga di kota tercemar racun kimia mematikan!",
+    "Pesan berantai tanpa sumber resmi mengklaim dua menteri mengundurkan diri serentak dan mendesak warga meneruskan kabar tersebut!",
     "Klaim palsu bantuan bansos tunai 5 juta rupiah per KK cair hari ini, segera daftar nomor HP lewat WhatsApp!",
     "Kementerian Kesehatan mengumumkan vaksin wajib anak mengandung racun kimia berbahaya penyebab autis dan kematian!",
     "Waspada gempa bumi megathrust magnitudo 10 SR malam ini dipastikan meratakan seluruh gedung di pesisir!",
